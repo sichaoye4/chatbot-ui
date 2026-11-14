@@ -1,0 +1,44 @@
+{
+  "name": "corporate-chat-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "data:verify": "python tests/oracles/build_csv_expectations.py --verify",
+    "typecheck": "tsc --noEmit",
+    "check:foundation": "node scripts/check-foundation-boundary.mjs",
+    "test:foundation:live": "tsx --env-file-if-exists=.env.local tests/live/foundation.ts",
+    "lint": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"packages/**/*.{ts,tsx,json}\" \"examples/**/*.{ts,json}\" \"tests/**/*.ts\" \"scripts/*.mjs\" \"*.json\" \"*.ts\"",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,json}\" \"packages/**/*.{ts,tsx,json}\" \"examples/**/*.{ts,json}\" \"tests/**/*.ts\" \"scripts/*.mjs\" \"*.json\" \"*.ts\"",
+    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "test:integration": "tsx --test tests/integration/*.test.ts",
+    "build": "vite build && tsc --project tsconfig.server.json && node scripts/check-client-boundary.mjs",
+    "dev:csv": "tsx --env-file-if-exists=.env.local apps/reference-server/main.ts",
+    "test:e2e:deterministic": "playwright test --project=deterministic",
+    "test:e2e:live": "playwright test --project=live",
+    "test:spike": "playwright test --project=spike",
+    "test:a11y": "playwright test --project=spike --grep accessibility"
+  },
+  "dependencies": {
+    "@openuidev/react-lang": "1.1.1",
+    "csv-parse": "7.0.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "prettier": "3.10.1",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}

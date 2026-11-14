@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "title": "Support operations · 7–13 November 2026",
+  "layoutIntent": "overview",
+  "panels": [
+    {
+      "id": "incoming-total", "component": "metric", "componentVersion": 1,
+      "title": "Incoming tickets", "bindingId": "summary", "importance": "supporting",
+      "config": { "valueField": "created_count", "format": "integer" }
+    },
+    {
+      "id": "sla-compliance", "component": "metric", "componentVersion": 1,
+      "title": "First-response SLA compliance · due cohort", "bindingId": "summary", "importance": "supporting",
+      "config": { "valueField": "sla_compliance_ratio", "format": "percent" }
+    },
+    {
+      "id": "sla-breached", "component": "metric", "componentVersion": 1,
+      "title": "Breached tickets · due cohort", "bindingId": "summary", "importance": "supporting",
+      "config": { "valueField": "sla_breached_count", "format": "integer" }
+    },
+    {
+      "id": "incoming-trend", "component": "trend", "componentVersion": 1,
+      "title": "Incoming tickets by day", "bindingId": "daily-volume", "importance": "primary",
+      "config": { "xField": "date", "yField": "created_count" }
+    },
+    {
+      "id": "category-comparison", "component": "comparison", "componentVersion": 1,
+      "title": "Incoming tickets by category", "bindingId": "category-volume", "importance": "supporting",
+      "config": { "categoryField": "category", "valueField": "created_count" }
+    },
+    {
+      "id": "breach-details", "component": "table", "componentVersion": 1,
+      "title": "Breached-ticket details · due cohort", "bindingId": "breach-records", "importance": "supporting",
+      "config": { "columns": ["ticket_id", "team_id", "priority", "sla_due_at", "first_response_at", "status"] }
+    }
+  ],
+  "bindings": [
+    {
+      "id": "summary", "toolId": "support.summary",
+      "args": { "start": "2026-11-07T00:00:00+08:00", "endExclusive": "2026-11-14T00:00:00+08:00", "timezone": "Asia/Shanghai" },
+      "filterMap": { "team": "teamId" }
+    },
+    {
+      "id": "daily-volume", "toolId": "support.volumeByDay",
+      "args": { "start": "2026-11-07T00:00:00+08:00", "endExclusive": "2026-11-14T00:00:00+08:00", "timezone": "Asia/Shanghai" },
+      "filterMap": { "team": "teamId" }
+    },
+    {
+      "id": "category-volume", "toolId": "support.volumeByCategory",
+      "args": { "start": "2026-11-07T00:00:00+08:00", "endExclusive": "2026-11-14T00:00:00+08:00" },
+      "filterMap": { "team": "teamId" }
+    },
+    {
+      "id": "breach-records", "toolId": "support.breachedTickets",
+      "args": { "start": "2026-11-07T00:00:00+08:00", "endExclusive": "2026-11-14T00:00:00+08:00", "pageSize": 50 },
+      "filterMap": { "team": "teamId" }
+    }
+  ],
+  "filters": [
+    { "id": "team", "type": "select", "label": "Team", "optionsSource": "support.authorizedTeams", "defaultValue": null }
+  ],
+  "dataMode": "snapshot"
+}

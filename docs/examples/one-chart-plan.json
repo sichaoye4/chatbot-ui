@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "title": "Incoming support tickets · 7–13 November 2026",
+  "layoutIntent": "auto",
+  "panels": [
+    {
+      "id": "incoming-trend",
+      "component": "trend",
+      "componentVersion": 1,
+      "title": "Incoming tickets by day",
+      "bindingId": "daily-volume",
+      "importance": "primary",
+      "config": { "xField": "date", "yField": "created_count" }
+    }
+  ],
+  "bindings": [
+    {
+      "id": "daily-volume",
+      "toolId": "support.volumeByDay",
+      "args": {
+        "start": "2026-11-07T00:00:00+08:00",
+        "endExclusive": "2026-11-14T00:00:00+08:00",
+        "timezone": "Asia/Shanghai"
+      },
+      "filterMap": { "team": "teamId" }
+    }
+  ],
+  "filters": [
+    { "id": "team", "type": "select", "label": "Team", "optionsSource": "support.authorizedTeams", "defaultValue": null }
+  ],
+  "dataMode": "snapshot"
+}

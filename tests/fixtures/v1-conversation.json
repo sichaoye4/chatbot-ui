@@ -1,0 +1,213 @@
+{
+  "description": "Frozen v1 storage compatibility baseline; synthetic values, not analytical evidence.",
+  "principal": {
+    "id": "legacy_user",
+    "tenant": "legacy_tenant",
+    "domains": [
+      "payment"
+    ],
+    "policyEpoch": 1
+  },
+  "conversationId": "legacy_chat",
+  "revisions": [
+    {
+      "artifactId": "legacy_artifact",
+      "revision": 1,
+      "generationId": 1,
+      "plan": {
+        "schemaVersion": 1,
+        "title": "CSV operations analysis",
+        "layoutIntent": "auto",
+        "panels": [
+          {
+            "componentVersion": 1,
+            "importance": "primary",
+            "id": "monthly-sla",
+            "component": "trend",
+            "title": "Monthly unweighted mean of recorded SLA rates",
+            "bindingId": "monthly",
+            "config": {
+              "xField": "month",
+              "yField": "sla_mean"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "id": "monthly",
+            "toolId": "csv.monthlySla",
+            "args": {},
+            "filterMap": {}
+          }
+        ],
+        "filters": [],
+        "dataMode": "snapshot"
+      },
+      "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "catalogVersion": "1",
+      "adapterVersion": "openui-1.1.1",
+      "filters": {},
+      "datasets": {
+        "monthly": {
+          "status": "ready",
+          "data": {
+            "rows": [
+              {
+                "month": "2024-01",
+                "sla_mean": 0.5
+              }
+            ],
+            "fields": [
+              {
+                "name": "month",
+                "type": "date",
+                "nullable": false
+              },
+              {
+                "name": "sla_mean",
+                "type": "number",
+                "nullable": true,
+                "unit": "ratio"
+              }
+            ],
+            "sourceId": "synthetic-legacy-fixture",
+            "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "queryVersion": "1",
+            "queryId": "legacy_query",
+            "args": {},
+            "observationCount": 2,
+            "asOf": "2026-11-14T00:00:00Z",
+            "truncated": false,
+            "nextCursor": null,
+            "warnings": []
+          }
+        }
+      }
+    },
+    {
+      "artifactId": "legacy_artifact",
+      "revision": 2,
+      "generationId": 2,
+      "plan": {
+        "schemaVersion": 1,
+        "title": "CSV operations analysis",
+        "layoutIntent": "auto",
+        "panels": [
+          {
+            "componentVersion": 1,
+            "importance": "primary",
+            "id": "monthly-sla",
+            "component": "trend",
+            "title": "Monthly unweighted mean of recorded SLA rates",
+            "bindingId": "monthly",
+            "config": {
+              "xField": "month",
+              "yField": "sla_mean"
+            }
+          },
+          {
+            "componentVersion": 1,
+            "importance": "supporting",
+            "id": "domain-counts",
+            "component": "comparison",
+            "title": "Source records by domain",
+            "bindingId": "domains",
+            "config": {
+              "categoryField": "domain",
+              "valueField": "record_count"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "id": "monthly",
+            "toolId": "csv.monthlySla",
+            "args": {},
+            "filterMap": {}
+          },
+          {
+            "id": "domains",
+            "toolId": "csv.countByDomain",
+            "args": {},
+            "filterMap": {}
+          }
+        ],
+        "filters": [],
+        "dataMode": "snapshot"
+      },
+      "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "catalogVersion": "1",
+      "adapterVersion": "openui-1.1.1",
+      "filters": {},
+      "datasets": {
+        "monthly": {
+          "status": "ready",
+          "data": {
+            "rows": [
+              {
+                "month": "2024-01",
+                "sla_mean": 0.5
+              }
+            ],
+            "fields": [
+              {
+                "name": "month",
+                "type": "date",
+                "nullable": false
+              },
+              {
+                "name": "sla_mean",
+                "type": "number",
+                "nullable": true,
+                "unit": "ratio"
+              }
+            ],
+            "sourceId": "synthetic-legacy-fixture",
+            "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "queryVersion": "1",
+            "queryId": "legacy_query",
+            "args": {},
+            "observationCount": 2,
+            "asOf": "2026-11-14T00:00:00Z",
+            "truncated": false,
+            "nextCursor": null,
+            "warnings": []
+          }
+        },
+        "domains": {
+          "status": "ready",
+          "data": {
+            "rows": [
+              {
+                "domain": "payment",
+                "record_count": 2
+              }
+            ],
+            "fields": [
+              {
+                "name": "domain",
+                "type": "string",
+                "nullable": false
+              },
+              {
+                "name": "record_count",
+                "type": "number",
+                "nullable": false
+              }
+            ],
+            "sourceId": "synthetic-legacy-fixture",
+            "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "queryVersion": "1",
+            "queryId": "legacy_query",
+            "args": {},
+            "observationCount": 2,
+            "asOf": "2026-11-14T00:00:00Z",
+            "truncated": false,
+            "nextCursor": null,
+            "warnings": []
+          }
+        }
+      }
+    }
+  ]
+}

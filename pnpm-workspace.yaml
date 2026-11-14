@@ -1,0 +1,11 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'examples/*'
+allowBuilds:
+  '@openuidev/lang-core': false
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@playwright/test@1.65.1'
+  - playwright-core@1.65.1
+  - playwright@1.65.1
