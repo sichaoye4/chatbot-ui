@@ -1,4 +1,6 @@
 :root {
+  --artifact-gap: 24px;
+  --artifact-padding: 24px;
   --chart-line: #586fd5;
   --chart-bar: #299da9;
   --chart-grid: #e5eaf4;
@@ -328,7 +330,7 @@ select {
 .panel-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--artifact-gap);
   align-items: stretch;
 }
 .panel {
@@ -960,7 +962,7 @@ summary:focus-visible {
 .inline-artifact {
   background: #f1f4fa;
   border: 1px solid #e7edf6;
-  padding: 22px;
+  padding: var(--artifact-padding);
   border-radius: 20px;
 }
 .inline-artifact .panel {
@@ -968,7 +970,7 @@ summary:focus-visible {
   border: 1px solid #edf0f7;
   border-radius: 14px;
   box-shadow: 0 4px 16px #344c7807;
-  padding: 22px;
+  padding: var(--artifact-padding);
 }
 .panel h3 {
   font-size: 14px;
@@ -1113,5 +1115,182 @@ tbody tr:hover {
   button,
   select {
     transition: none;
+  }
+}
+/* Project diagrams share analytic card chrome and keep dense graphics locally scrollable. */
+.project-chart {
+  min-width: 0;
+}
+.project-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid #e5eaf4;
+  border-radius: 8px;
+  background: white;
+}
+.project-scroll svg {
+  display: block;
+  max-width: none;
+  font:
+    12px Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: #35465f;
+}
+.project-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.project-toolbar label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.project-toolbar output {
+  min-width: 44px;
+  text-align: center;
+}
+.project-axis line {
+  stroke: #e5eaf4;
+  stroke-dasharray: 3 5;
+}
+.project-axis text,
+.project-small {
+  fill: #63728c;
+  font-size: 11px;
+}
+.project-task-label {
+  fill: #35465f;
+  font-weight: 600;
+}
+.dependency-edge {
+  fill: none;
+  stroke: #63728c;
+  stroke-width: 1.5;
+}
+.dependency-edge.feedback {
+  stroke-dasharray: 5 4;
+}
+.project-hit {
+  fill: transparent;
+  stroke: transparent;
+}
+.project-mark {
+  cursor: pointer;
+  outline: none;
+}
+.project-mark:focus-visible .project-hit,
+.project-mark.selected .project-hit {
+  stroke: #5369d8;
+  stroke-width: 2;
+}
+.flow-node rect,
+.flow-node polygon {
+  fill: #f6f8ff;
+  stroke: #586fd5;
+  stroke-width: 1.5;
+}
+.flow-node text {
+  fill: #35465f;
+  font-weight: 600;
+  pointer-events: none;
+}
+.flow-node.selected rect,
+.flow-node.selected polygon,
+.flow-node:focus-visible rect,
+.flow-node:focus-visible polygon {
+  fill: #e4eafa;
+  stroke: #354baf;
+  stroke-width: 3;
+}
+.flow-muted {
+  opacity: 0.42;
+}
+.flow-edge-label {
+  fill: #35465f;
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: white;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.project-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-left: 3px solid #586fd5;
+  background: #f6f8fc;
+  min-height: 64px;
+  overflow-wrap: anywhere;
+}
+.project-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.project-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Charts retain readable native SVG text; overflow belongs to each card. */
+.visualization-chart {
+  min-width: 0;
+  color: var(--ink, #35465f);
+}
+.viz-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid #e5eaf4;
+  border-radius: 8px;
+}
+.viz-scroll svg {
+  display: block;
+  font:
+    12px Inter,
+    system-ui,
+    sans-serif;
+}
+.viz-scroll text {
+  fill: #35465f;
+}
+.viz-scroll text[fill='white'] {
+  fill: white;
+}
+.viz-summary,
+.viz-units,
+.viz-method {
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.viz-mark {
+  cursor: pointer;
+}
+.viz-mark:focus {
+  outline: 2px solid #35465f;
+  outline-offset: 3px;
+}
+.viz-mark[aria-pressed='true'] {
+  filter: drop-shadow(0 0 2px #35465f);
+}
+
+@media (max-width: 600px) {
+  .inline-artifact {
+    --artifact-padding: 16px;
   }
 }

@@ -1,3 +1,4 @@
+import { VisualizationConfig, VisualizationSemantics } from './visualization.ts';
 import { z } from 'zod';
 
 export const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
@@ -37,6 +38,67 @@ const base = {
   importance: z.enum(['primary', 'supporting']),
 };
 export const Panel = z.discriminatedUnion('component', [
+  z.strictObject({ ...base, component: z.literal('histogram'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('boxPlot'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('scatter'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('heatmap'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('bullet'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('groupedBar'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('stackedBar'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('dumbbell'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('waterfall'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('intervalTrend'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('timeline'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('treemap'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('sankey'), config: VisualizationConfig }),
+  z.strictObject({ ...base, component: z.literal('choropleth'), config: VisualizationConfig }),
+  z.strictObject({
+    ...base,
+    component: z.literal('gantt'),
+    config: z.strictObject({
+      taskIdField: Field,
+      labelField: Field,
+      startField: Field,
+      endField: Field,
+      progressField: Field,
+      dependenciesField: Field,
+      kindField: Field,
+    }),
+  }),
+  z.strictObject({
+    ...base,
+    component: z.literal('flowchart'),
+    config: z.strictObject({
+      idField: Field,
+      labelField: Field,
+      kindField: Field,
+      sourceField: Field,
+      targetField: Field,
+      direction: z.enum(['LR', 'TB']),
+    }),
+  }),
+  z.strictObject({
+    ...base,
+    component: z.literal('burndown'),
+    config: z.strictObject({
+      timeField: Field,
+      actualField: Field,
+      referenceField: Field,
+      mode: z.enum(['burndown', 'burnup']),
+    }),
+  }),
+  z.strictObject({
+    ...base,
+    component: z.literal('cumulativeFlow'),
+    config: z.strictObject({
+      timeField: Field,
+      stageFields: z
+        .array(Field)
+        .min(2)
+        .max(6)
+        .refine((v) => new Set(v).size === v.length, 'Duplicate stages'),
+    }),
+  }),
   z.strictObject({
     ...base,
     component: z.literal('metric'),
@@ -120,6 +182,7 @@ export type FieldMeta = {
   unit?: string;
 };
 export type Dataset = {
+  visualization?: import('./visualization.ts').VisualizationSemantics;
   rows: Row[];
   fields: FieldMeta[];
   sourceId: string;
@@ -147,6 +210,7 @@ export type Artifact = {
   datasets: Record<string, DatasetState>;
 };
 export const DatasetSchema = z.strictObject({
+  visualization: VisualizationSemantics.optional(),
   rows: z
     .array(z.record(Field, z.union([z.string(), z.number().finite(), z.boolean(), z.null()])))
     .max(2000),

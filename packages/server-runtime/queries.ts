@@ -1,6 +1,11 @@
+import {
+  isVisualizationPanel,
+  validateVisualizationData,
+} from '../contracts/visualization-model.ts';
 import { randomUUID } from 'node:crypto';
 import { AppError, type Dataset, type Filters, type Plan } from '../contracts/index.ts';
 import { Catalog, type Principal } from '../catalog/index.ts';
+import { isProjectPanel, validateProjectData } from '../contracts/project-model.ts';
 
 export class QueryRuntime {
   cache = new Map<string, Dataset>();
@@ -49,6 +54,23 @@ export class QueryRuntime {
     const args = { ...binding.args, ...overrides };
     for (const [id, arg] of Object.entries(binding.filterMap))
       if (id in filters) args[arg] = filters[id as keyof Filters];
-    return this.run(binding.toolId, args, principal);
+    const result = this.run(binding.toolId, args, principal);
+    for (const panel of plan.panels.filter((p) => p.bindingId === bindingId)) {
+      if (isVisualizationPanel(panel)) {
+        try {
+          validateVisualizationData(panel, result);
+        } catch {
+          throw new AppError('VISUALIZATION_DATA_INVALID');
+        }
+      }
+      if (isProjectPanel(panel)) {
+        try {
+          validateProjectData(panel, result);
+        } catch {
+          throw new AppError('PROJECT_DATA_INVALID');
+        }
+      }
+    }
+    return result;
   }
 }

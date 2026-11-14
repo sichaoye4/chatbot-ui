@@ -62,10 +62,15 @@ Rows are source observations, not tickets. Duplicate candidate keys are preserve
 
 ## Roadmap and evidence
 
+Project-management charts are now available as an explicitly synthetic inline demo. Ask **“Show a project management demo”**, **“Show a Gantt demo”**, **“Show a flowchart demo”**, **“Show a burnup demo”**, or **“Show a cumulative flow demo”**. See [project visualization contracts and research](docs/PROJECT_MANAGEMENT_VISUALIZATIONS.md) for integration requirements and limitations. Real project data is not connected.
+
 - [Implementation/testing plan](docs/IMPLEMENTATION_AND_TESTING_PLAN.md)
 - [Progress, checks and blockers](docs/IMPLEMENTATION_PROGRESS.md)
 - [OpenUI adoption decision](docs/OPENUI_ADOPTION.md)
 - [Framework design](docs/CHATBOT_UI_FRAMEWORK_DESIGN.md)
 - [Visualization component expansion and Swiss-grid rules](docs/DATA_VISUALIZATION_COMPONENTS.md) — researched definitions; proposed, not implemented
+- [Implemented project-management visualizations](docs/PROJECT_MANAGEMENT_VISUALIZATIONS.md) — Gantt, interactive flowchart, burndown/burnup, cumulative flow
 
 Remaining release work includes a generic second-domain integration, relationship rendering, the 60-prompt evaluation, performance sampling, manual screen-reader review and production identity/retention decisions. Passing the local demo does not establish those capabilities.
+
+Data visualization charts are implemented in the reference chat. Try **“Show a visualization demo”**, **“Show a comparison visualization demo”**, or **“Show a specialized visualization demo”**. Individual requests such as **“Show a histogram demo”** and **“Show a percent stacked bar demo”** also work. See [implementation and supported contracts](docs/DATA_VISUALIZATION_IMPLEMENTATION.md). All these demos use explicitly synthetic tool results.

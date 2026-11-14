@@ -6,6 +6,14 @@ Source plan: [IMPLEMENTATION_AND_TESTING_PLAN.md](./IMPLEMENTATION_AND_TESTING_P
 Generalization plan: [GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md](./GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md).
 This log distinguishes implemented code, executed checks, and unverified scope. No gate is complete merely because a file exists.
 
+## Project-management charts — 2026-11-14
+
+- Added Gantt, interactive flowchart, burndown/burnup and cumulative-flow components to the active v1 contract/catalog/OpenUI renderer, plus v2 capability descriptors. [Contracts, research and limits](PROJECT_MANAGEMENT_VISUALIZATIONS.md).
+- Added explicit synthetic project demo tools and chat prompts, bounded result validation, keyboard inspection and exact-value tables. Real project integrations and the general v2 browser host remain unimplemented.
+- Unified the CSS grid gutter with the layout calculation. Source footers now use dataset provenance and warnings; CSV SLA warnings are emitted only for result schemas containing SLA fields.
+- Verification: 63 unit tests, 12 integration tests, 10 deterministic browser/renderer tests, typecheck, formatting, production build, client import boundary and foundation boundary passed. Local HTTP tests required localhost access outside the restricted execution sandbox. No live model call was used for the project examples.
+- Browser evidence: [report](../artifacts/e2e/2026-11-14T15-52-54-725Z/report/index.html). Reviewed diagram and chart screenshots; tested keyboard inspection, flow loops, zoom/orientation/fit, reload, provenance, mobile overflow and automated accessibility. Manual screen-reader testing remains open.
+
 ## Explicit chart requests and relevant reply text — 2026-11-14
 
 - **I21 — Resolved for the reported request:** The active v1 catalog/schema/renderer had no pie component, so the agent generated a bar chart. The service also hardcoded the same SLA sentence for every visual answer. Neither behavior met the request.
@@ -172,3 +180,12 @@ None for running the current local CSV demonstration. DeepSeek configuration and
 - Verification: 43 unit tests, 6 integration tests, 3 deterministic browser scenarios, 2 renderer/accessibility scenarios, and 2 real DeepSeek scenarios passed. One deterministic-only fault scenario is intentionally skipped in the live project. Typecheck, production build, client boundary, oracle verification and formatting passed.
 - Evidence: [deterministic](../artifacts/e2e/2026-11-14T13-44-00-233Z/report/index.html), [renderer/accessibility](../artifacts/e2e/2026-11-14T13-44-06-816Z/report/index.html), [live DeepSeek](../artifacts/e2e/2026-11-14T13-44-12-467Z/report/index.html).
 - Scope limitation: select controls currently support domain, country, system and month. Custom date-range controls and a generic domain registration system remain future framework tasks; no claim that arbitrary filter types are implemented.
+
+
+## Data visualization component implementation — 2026-11-15
+
+Implemented all 14 core forms from the visualization design through v1 contracts, catalog eligibility, semantic result validation, OpenUI compilation, React/SVG rendering, deterministic layout and persisted dataset metadata. Added synthetic authorized demo tools and three gallery prompts. Foundation v2 has descriptors only; host rendering continues through v1. See [supported scope and limits](DATA_VISUALIZATION_IMPLEMENTATION.md), including fictional-only bundled geography and deferred optional variants.
+
+Validation: 81 unit tests, 12 integration tests and 15 deterministic/spike browser tests passed. Type checking, formatting, production build, client import guard and the expanded six-module foundation import guard passed. Browser checks cover all 14 charts, 1/2/4/6-panel compositions, keyboard inspection, exact-values tables, restoration, 320/768/1200px viewports, 200% zoom and automated accessibility. Screenshot review corrected half-card scrolling and heatmap label contrast. A zero-count histogram regression additionally verifies zero-height bars using server-rendered SVG markup. Manual screen-reader and live-model selection evaluations were not performed.
+
+Browser evidence: `artifacts/e2e/2026-11-14T16-19-51-553Z/report/index.html`; individual chart screenshots are under that run's `browser/visualization-charts-*` folders. The report predates only the separately unit-tested all-zero scale fix. Localhost/browser tests ran outside the sandbox after sandbox-only access failures; no application credentials or external services were used by these deterministic tests.

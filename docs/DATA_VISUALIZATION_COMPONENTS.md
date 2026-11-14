@@ -1,8 +1,10 @@
 # Data visualization component expansion
 
-**Status:** Proposed component definitions; not registered or implemented.  
+**Status:** All 14 core chart forms implemented in the v1 reference host; see [implementation details and limits](DATA_VISUALIZATION_IMPLEMENTATION.md). The original design below remains the target specification, including optional features and release checks not yet completed.  
 **Reviewed:** 2026-11-14.  
 **Scope:** Extend inline assistant artifacts with useful analytical forms while preserving the current style, deterministic layout, and one-to-six-panel limit.
+
+**Subsequent implementation:** [Project-management visualizations](PROJECT_MANAGEMENT_VISUALIZATIONS.md) now adds Gantt (a specialized schedule form related to the timeline proposal), flowchart, burndown/burnup and cumulative flow. Those have separate implemented IDs and contracts. The 14 chart forms below are now implemented separately; the current-support audit records the baseline before either implementation.
 
 ## 1. Current support and gaps
 
@@ -137,4 +139,4 @@ Release evidence for each component must include:
 - Keyboard/touch and screen-reader checks, equivalent-value checks, automated accessibility checks, and screenshot review against the current cards.
 - Clear disclosure when sampling, binning, truncation, missingness, or incomplete geography affects interpretation.
 
-This change defines the expansion only. No runtime registrations, dependencies, or supported-capability claims change until those gates are met.
+The implementation status and verified scope are maintained in [DATA_VISUALIZATION_IMPLEMENTATION.md](DATA_VISUALIZATION_IMPLEMENTATION.md). Do not interpret this target specification as evidence that every optional feature or manual accessibility gate is complete.

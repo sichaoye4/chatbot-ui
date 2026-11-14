@@ -28,7 +28,9 @@ test('v2 descriptors and contracts support three different domains without domai
   const snapshot = JSON.parse(JSON.stringify(c.snapshot(principal)));
   assert.equal(snapshot.tools.length, 3);
   assert.equal(
-    snapshot.components[1].guidance.useWhen,
+    snapshot.components.find(
+      (component: { ref: { id: string } }) => component.ref.id === 'ui.trend',
+    ).guidance.useWhen,
     'Show temporal change at the declared grain',
   );
   assert.equal(snapshot.tools[1].arguments.additionalProperties, false);

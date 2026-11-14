@@ -1,3 +1,8 @@
+import { visualizationDefinitions, type VisualizationKind } from '../contracts/visualization.ts';
+import {
+  isVisualizationPanel,
+  validateVisualizationFields,
+} from '../contracts/visualization-model.ts';
 import { z } from 'zod';
 import { AppError, Plan, type FieldMeta, type Dataset } from '../contracts/index.ts';
 
@@ -14,10 +19,46 @@ export type Tool = {
   args: z.ZodType;
   fields: FieldMeta[];
   execute: (args: Record<string, unknown>, principal: Principal) => Dataset;
+  visualizationViews?: VisualizationKind[];
   aggregate?: boolean;
   partitions?: { categoryField: string; valueField: string }[];
+  projectViews?: ('gantt' | 'flowchart' | 'burndown' | 'cumulativeFlow')[];
 };
 export const components = {
+  ...(Object.fromEntries(
+    Object.entries(visualizationDefinitions).map(([key, d]) => [
+      key,
+      {
+        minWidth: d.width,
+        minHeight: d.height,
+        description: `Validated ${key}; requires trusted visualization semantics and complete mapped roles.`,
+      },
+    ]),
+  ) as Record<VisualizationKind, { minWidth: number; minHeight: number; description: string }>),
+  gantt: {
+    minWidth: 600,
+    minHeight: 400,
+    description:
+      'Project schedule: dated tasks, milestones, progress ratios and finish-to-start dependencies. Complete task data required.',
+  },
+  flowchart: {
+    minWidth: 600,
+    minHeight: 400,
+    description:
+      'Process nodes and labeled directed edges, decisions, branches and loops. Explicit node/edge rows required.',
+  },
+  burndown: {
+    minWidth: 400,
+    minHeight: 320,
+    description:
+      'Dated remaining work against supplied ideal, or completed work against scope in burnup mode. Matching units required.',
+  },
+  cumulativeFlow: {
+    minWidth: 440,
+    minHeight: 360,
+    description:
+      'Stacked counts of mutually exclusive workflow states by date. Complete state snapshots required.',
+  },
   metric: { minWidth: 220, minHeight: 144, description: 'One registered aggregate value' },
   trend: {
     minWidth: 380,
@@ -73,12 +114,21 @@ export class Catalog {
         tool.args.parse({ ...binding.args, [arg]: def.defaultValue });
       }
       for (const panel of plan.panels.filter((p) => p.bindingId === binding.id)) {
+        if (
+          ['gantt', 'flowchart', 'burndown', 'cumulativeFlow'].includes(panel.component) &&
+          !tool.projectViews?.some((view) => view === panel.component)
+        )
+          throw new AppError('PROJECT_SEMANTICS_REQUIRED');
         const field = (name: string, type?: string) => {
           const meta = tool.fields.find((f) => f.name === name);
           if (!meta || (type && meta.type !== type)) throw new AppError('PLAN_INVALID');
           return meta;
         };
-        if (panel.component === 'metric') {
+        if (isVisualizationPanel(panel)) {
+          if (!tool.visualizationViews?.includes(panel.component))
+            throw new AppError('VISUALIZATION_SEMANTICS_REQUIRED');
+          validateVisualizationFields(panel, tool.fields);
+        } else if (panel.component === 'metric') {
           if (!tool.aggregate) throw new AppError('PLAN_INVALID');
           const meta = field(panel.config.valueField, 'number');
           if ((panel.config.format === 'percent') !== (meta.unit === 'ratio'))
@@ -98,6 +148,35 @@ export class Catalog {
             )
           )
             throw new AppError('PIE_REQUIRES_PARTITION');
+        } else if (panel.component === 'gantt') {
+          for (const name of [
+            panel.config.taskIdField,
+            panel.config.labelField,
+            panel.config.dependenciesField,
+            panel.config.kindField,
+          ])
+            field(name, 'string');
+          field(panel.config.startField, 'date');
+          field(panel.config.endField, 'date');
+          if (field(panel.config.progressField, 'number').unit !== 'ratio')
+            throw new AppError('PLAN_INVALID');
+        } else if (panel.component === 'flowchart') {
+          for (const name of [
+            panel.config.idField,
+            panel.config.labelField,
+            panel.config.kindField,
+            panel.config.sourceField,
+            panel.config.targetField,
+          ])
+            field(name, 'string');
+        } else if (panel.component === 'burndown' || panel.component === 'cumulativeFlow') {
+          field(panel.config.timeField, 'date');
+          const names =
+            panel.component === 'burndown'
+              ? [panel.config.actualField, panel.config.referenceField]
+              : panel.config.stageFields;
+          const units = names.map((name) => field(name, 'number').unit);
+          if (!units[0] || new Set(units).size !== 1) throw new AppError('PLAN_INVALID');
         } else if (panel.component === 'table')
           panel.config.columns.forEach((c) => {
             field(c);
@@ -115,6 +194,8 @@ export class Catalog {
       description: t.description,
       fields: t.fields,
       partitions: t.partitions ?? [],
+      projectViews: t.projectViews ?? [],
+      visualizationViews: t.visualizationViews ?? [],
       arguments: z.toJSONSchema(t.args),
     }));
   }

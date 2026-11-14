@@ -26,7 +26,13 @@ export default defineConfig({
   projects: [
     {
       name: 'deterministic',
-      testMatch: ['journey.spec.ts', 'dynamic-filters.spec.ts', 'pie.spec.ts'],
+      testMatch: [
+        'journey.spec.ts',
+        'dynamic-filters.spec.ts',
+        'pie.spec.ts',
+        'project-charts.spec.ts',
+        'visualization-charts.spec.ts',
+      ],
     },
     { name: 'live', testMatch: ['journey.spec.ts', 'dynamic-filters.spec.ts', 'pie.spec.ts'] },
     { name: 'spike', testMatch: 'spike.spec.ts' },

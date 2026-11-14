@@ -1,6 +1,10 @@
+import { VisualizationChart } from './visualization-charts.tsx';
+import { isVisualizationPanel } from '../contracts/visualization-model.ts';
 import { useState } from 'react';
 import { AnalyticsChart } from './chart.tsx';
 import { PieChart } from './pie.tsx';
+import { ProjectChart } from './project-charts.tsx';
+import { isProjectPanel } from '../contracts/project-model.ts';
 import type { Action, Dataset, Panel, Row } from '../contracts/index.ts';
 export function display(value: unknown, unit?: string) {
   return value === null || value === undefined
@@ -73,6 +77,26 @@ export function PanelBody({
       </>
     );
   if (!data.rows.length) return <p role="status">No source records match these filters.</p>;
+  if (isVisualizationPanel(panel))
+    return (
+      <>
+        <VisualizationChart key={`${data.queryId}-${panel.component}`} panel={panel} data={data} />
+        <button aria-expanded={details} onClick={() => setDetails(!details)}>
+          {details ? 'Hide' : 'Show'} underlying chart values
+        </button>
+        {details && <DataTable data={data} columns={data.fields.map((f) => f.name)} />}
+      </>
+    );
+  if (isProjectPanel(panel))
+    return (
+      <>
+        <ProjectChart key={`${data.queryId}-${panel.component}`} panel={panel} data={data} />
+        <button aria-expanded={details} onClick={() => setDetails(!details)}>
+          {details ? 'Hide' : 'Show'} underlying chart values
+        </button>
+        {details && <DataTable data={data} columns={data.fields.map((f) => f.name)} />}
+      </>
+    );
   if (panel.component === 'table')
     return (
       <>

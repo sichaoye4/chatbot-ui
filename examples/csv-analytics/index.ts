@@ -190,9 +190,11 @@ export class CsvRepository {
       asOf: '2025-05',
       truncated: nextCursor !== null,
       nextCursor,
-      warnings: [
-        'SLA averages are unweighted means of source-record rates; no ticket denominators are available.',
-      ],
+      warnings: fields.some((field) => field.name.startsWith('sla_'))
+        ? [
+            'SLA averages are unweighted means of source-record rates; no ticket denominators are available.',
+          ]
+        : [],
     };
   }
   summary(args: Record<string, unknown>, p: Principal) {

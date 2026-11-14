@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 const roots = [
   'packages/contracts/foundation.ts',
+  'packages/contracts/visualization.ts',
   'packages/catalog/foundation.ts',
   'packages/catalog/builtins.ts',
   'packages/server-runtime/foundation.ts',

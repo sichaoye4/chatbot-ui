@@ -1,3 +1,7 @@
+import {
+  visualizationTools,
+  withVisualizationDemo,
+} from '../../examples/data-visualization/index.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -10,6 +14,7 @@ import { ChatService } from '../../packages/server-runtime/service.ts';
 import { DeepSeekAgent, DeterministicAgent } from '../../examples/csv-analytics/legacy-agent.ts';
 import { csvPresentation } from '../../examples/csv-analytics/presentation.ts';
 import { CsvRepository, SOURCE_HASH } from '../../examples/csv-analytics/index.ts';
+import { projectTools, withProjectDemo } from '../../examples/project-management/index.ts';
 
 export function createApplication(
   options: {
@@ -24,9 +29,30 @@ export function createApplication(
     SOURCE_HASH,
   );
   const store = new Store(options.database ?? '.runtime/chat.sqlite');
-  const queries = new QueryRuntime(new Catalog(repo.tools()));
-  const agent = options.mode === 'deepseek' ? new DeepSeekAgent() : new DeterministicAgent();
-  const service = new ChatService(store, queries, agent, SOURCE_HASH, csvPresentation);
+  const queries = new QueryRuntime(
+    new Catalog([...repo.tools(), ...projectTools(), ...visualizationTools()]),
+  );
+  const agent = withVisualizationDemo(
+    withProjectDemo(options.mode === 'deepseek' ? new DeepSeekAgent() : new DeterministicAgent()),
+  );
+  const presentation = {
+    ...csvPresentation,
+    explain(reason: string) {
+      if (reason === 'visualization-data-required')
+        return 'This source does not supply the required statistical, partition or geographic semantics. Try a histogram demo, comparison visualization demo, or specialized visualization demo.';
+      return reason === 'project-data-required'
+        ? 'This source has no project schedules or workflow definitions. Try “Show a Gantt demo”, “Show a flowchart demo”, or “Show a project management demo” for clearly labeled synthetic examples.'
+        : csvPresentation.explain(reason);
+    },
+    visual(artifact: Parameters<typeof csvPresentation.visual>[0]) {
+      if (artifact.plan.bindings.some((b) => b.toolId.startsWith('viz.')))
+        return 'Synthetic visualization demonstration. Inspect the charts and underlying values below; these are not connected business records.';
+      return artifact.plan.bindings.some((b) => b.toolId.startsWith('pm.'))
+        ? 'Synthetic project demonstration — not your connected project data. Inspect tasks, decisions, branches and dated work observations below.'
+        : csvPresentation.visual(artifact);
+    },
+  };
+  const service = new ChatService(store, queries, agent, SOURCE_HASH, presentation);
   const principals: Record<string, Principal> = {
     demo: { id: 'demo', tenant: 'demo', domains: ['kyc', 'party', 'payment'], policyEpoch: 1 },
     limited: { id: 'limited', tenant: 'restricted', domains: ['kyc'], policyEpoch: 1 },

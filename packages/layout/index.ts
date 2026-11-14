@@ -9,6 +9,16 @@ export function layout(panels: Panel[], width: number) {
       width >= 768 &&
       p.component !== 'table' &&
       p.component !== 'relationship' &&
+      p.component !== 'gantt' &&
+      ![
+        'flowchart',
+        'heatmap',
+        'waterfall',
+        'timeline',
+        'treemap',
+        'sankey',
+        'choropleth',
+      ].includes(p.component) &&
       (width - 24) / 2 >= cap.minWidth
     )
       span = 6;

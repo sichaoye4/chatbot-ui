@@ -150,7 +150,16 @@ function InlineArtifact({
                 />
               )}
               <footer className="panel-source">
-                Source: training_data_masked_final_1.csv · through May 2025
+                {state?.status === 'ready' ? (
+                  <>
+                    Source: {state.data.sourceId} · as of {state.data.asOf}
+                    {state.data.warnings.map((warning, index) => (
+                      <div key={index}>{warning}</div>
+                    ))}
+                  </>
+                ) : (
+                  'Source details available when data loads.'
+                )}
               </footer>
             </article>
           );
@@ -463,6 +472,7 @@ function App() {
                   'How many source records are in the file?',
                   'Show monthly unweighted mean SLA rate and source-record counts by domain.',
                   'What is the unweighted mean of all recorded SLA rates?',
+                  'Show a project management demo',
                 ].map((t) => (
                   <button
                     key={t}
@@ -510,7 +520,7 @@ function App() {
                   {!!m.evidence && (
                     <details className="evidence">
                       <summary>Source evidence</summary>
-                      <p>training_data_masked_final_1.csv · immutable source snapshot</p>
+                      <p>Immutable source snapshot · provenance details</p>
                       <pre>
                         {JSON.stringify(
                           typeof m.evidence === 'string' ? JSON.parse(m.evidence) : m.evidence,
