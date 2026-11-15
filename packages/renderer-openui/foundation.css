@@ -1,0 +1,380 @@
+.foundation-response {
+  --chart-line: #425ac4;
+  --chart-bar: #137b84;
+  --chart-grid: #dbe2ee;
+  --chart-label: #40516b;
+  color: #273952;
+}
+.foundation-visual-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 1rem;
+}
+.foundation-visual-group > section {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #dbe2ee;
+  border-radius: 0.75rem;
+  background: white;
+}
+.foundation-visual-group > [data-component='ui.table'],
+.foundation-visual-group > [data-component='ui.gantt'],
+.foundation-visual-group > [data-component='ui.flowchart'],
+.foundation-visual-group > [data-component='ui.heatmap'],
+.foundation-visual-group > [data-component='ui.waterfall'],
+.foundation-visual-group > [data-component='ui.timeline'],
+.foundation-visual-group > [data-component='ui.treemap'],
+.foundation-visual-group > [data-component='ui.sankey'],
+.foundation-visual-group > [data-component='ui.choropleth'] {
+  grid-column: 1 / -1;
+}
+.foundation-visual-group:has(> [data-component='ui.metric']:only-child) {
+  max-width: 420px;
+}
+.foundation-note {
+  color: #40516b;
+  font-size: 0.875rem;
+}
+.foundation-response fieldset {
+  border: 1px solid #cbd5e4;
+  border-radius: 0.6rem;
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem;
+}
+.foundation-response fieldset label {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.25rem 0.75rem 0.25rem 0;
+}
+.foundation-response fieldset select,
+.foundation-response fieldset input {
+  max-width: 100%;
+  font: inherit;
+  padding: 0.35rem;
+}
+.foundation-response fieldset button {
+  margin: 0.25rem 0.4rem 0.25rem 0;
+}
+.foundation-response table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.foundation-response th,
+.foundation-response td {
+  text-align: left;
+  border-bottom: 1px solid #dbe2ee;
+  padding: 0.4rem;
+}
+.foundation-table-scroll,
+.foundation-response details,
+.foundation-response .project-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+.foundation-response button:focus-visible,
+.foundation-response summary:focus-visible {
+  outline: 2px solid #344fc0;
+  outline-offset: 2px;
+}
+.foundation-metric {
+  font-size: 2rem;
+  font-weight: 600;
+}
+.foundation-response .chart-container,
+.foundation-response .pie-plot {
+  position: relative;
+  min-width: 0;
+}
+.foundation-response .chart,
+.foundation-response .pie-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.foundation-response .chart-grid line {
+  stroke: var(--chart-grid);
+  stroke-dasharray: 3 5;
+}
+.foundation-response .chart-grid text {
+  fill: var(--chart-label);
+  font-size: 11px;
+}
+.foundation-response .chart-baseline {
+  stroke: #aab7cb;
+}
+.foundation-response .chart-line {
+  fill: none;
+  stroke: var(--chart-line);
+  stroke-width: 2.5;
+}
+.foundation-response .chart-marker {
+  fill: white;
+  stroke: var(--chart-line);
+  stroke-width: 2;
+}
+.foundation-response .chart-bar {
+  fill: var(--chart-bar);
+}
+.foundation-response .chart-missing {
+  fill: white;
+  stroke: #40516b;
+  stroke-dasharray: 2 2;
+}
+.foundation-response .chart-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.foundation-response .chart-point:focus-visible .chart-hit {
+  stroke: #344fc0;
+  stroke-width: 2;
+}
+.foundation-response .chart-crosshair {
+  stroke: #8a99b4;
+  stroke-dasharray: 3 4;
+}
+.foundation-response .chart-tooltip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  max-width: calc(100% - 16px);
+  padding: 0.7rem;
+  border: 1px solid #9baac1;
+  background: white;
+  overflow-wrap: anywhere;
+}
+.foundation-response .pie-plot {
+  max-width: 340px;
+  margin: auto;
+}
+.foundation-response .pie-tooltip {
+  left: calc(50% - 90px);
+}
+.foundation-response .pie-slice path,
+.foundation-response .pie-slice circle {
+  stroke: white;
+  stroke-width: 2;
+}
+.foundation-response .pie-slice:focus-visible path,
+.foundation-response .pie-slice:focus-visible circle {
+  stroke: #172c5b;
+  stroke-width: 4;
+}
+.foundation-response .pie-legend {
+  list-style: none;
+  padding: 0;
+}
+.foundation-response .pie-legend button {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+}
+.foundation-response .pie-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.foundation-response .project-scroll svg {
+  min-width: 600px;
+  width: 100%;
+  height: auto;
+}
+.foundation-response .viz-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid #dbe2ee;
+  border-radius: 0.5rem;
+}
+.foundation-response .viz-scroll svg {
+  display: block;
+  font:
+    12px system-ui,
+    sans-serif;
+}
+.foundation-response .viz-scroll text {
+  fill: #273952;
+}
+.foundation-response .viz-scroll text[fill='white'] {
+  fill: white;
+}
+.foundation-response .viz-summary,
+.foundation-response .viz-units,
+.foundation-response .viz-method {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.foundation-response .viz-mark {
+  cursor: pointer;
+}
+.foundation-response .viz-mark:focus-visible {
+  outline: 2px solid #273952;
+  outline-offset: 3px;
+}
+.foundation-response .viz-mark[aria-pressed='true'] {
+  filter: drop-shadow(0 0 2px #273952);
+}
+.foundation-response .project-axis line {
+  stroke: #dbe2ee;
+  stroke-dasharray: 3 5;
+}
+.foundation-response .project-axis text,
+.foundation-response .project-small {
+  fill: #40516b;
+  font-size: 11px;
+}
+.foundation-response .dependency-edge {
+  fill: none;
+  stroke: #40516b;
+  stroke-width: 1.5;
+}
+.foundation-response .dependency-edge.feedback {
+  stroke-dasharray: 5 4;
+}
+.foundation-response .flow-node rect,
+.foundation-response .flow-node polygon {
+  fill: #f6f8ff;
+  stroke: #425ac4;
+  stroke-width: 1.5;
+}
+.foundation-response .flow-node text {
+  fill: #273952;
+  font-weight: 600;
+}
+.foundation-response .flow-node:focus-visible rect,
+.foundation-response .flow-node:focus-visible polygon,
+.foundation-response .flow-node.selected rect,
+.foundation-response .flow-node.selected polygon {
+  stroke: #263d9e;
+  stroke-width: 3;
+}
+.foundation-response .flow-muted {
+  opacity: 0.42;
+}
+.foundation-response .project-inspector {
+  padding: 0.75rem;
+  border-left: 3px solid #425ac4;
+  background: #f6f8fc;
+}
+.foundation-response .project-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.foundation-response .project-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+.foundation-response .project-hit {
+  fill: transparent;
+}
+.foundation-response .project-mark:focus-visible .project-hit {
+  stroke: #344fc0;
+  stroke-width: 2;
+}
+.foundation-response dialog {
+  max-width: min(95vw, 1100px);
+  max-height: 90vh;
+  overflow: auto;
+}
+.foundation-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 30rem;
+  height: 100%;
+  color: #273952;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.5;
+  background: #f8f9fc;
+}
+.foundation-chat *,
+.foundation-response * {
+  box-sizing: border-box;
+}
+.foundation-chat button,
+.foundation-response button {
+  font: inherit;
+  color: inherit;
+  background: white;
+  border: 1px solid #aebbd0;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+.foundation-chat button:disabled,
+.foundation-response button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.foundation-chat textarea {
+  font: inherit;
+  border: 1px solid #aebbd0;
+  border-radius: 0.6rem;
+  padding: 0.6rem;
+}
+.foundation-response summary {
+  cursor: pointer;
+  margin: 0.6rem 0;
+}
+.foundation-response h3 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+}
+.foundation-chat header {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #dbe2ee;
+}
+.foundation-chat h1 {
+  font-size: 1.2rem;
+}
+.foundation-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
+}
+.foundation-message {
+  max-width: 1100px;
+  margin: 0 auto 1rem;
+}
+.foundation-user {
+  text-align: right;
+}
+.foundation-user p {
+  display: inline-block;
+  padding: 0.65rem 1rem;
+  border-radius: 1rem;
+  background: #edf1ff;
+  text-align: left;
+}
+.foundation-chat form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+  padding: 1rem;
+  border-top: 1px solid #dbe2ee;
+}
+.foundation-chat form label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.foundation-chat textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 3rem;
+  resize: vertical;
+}

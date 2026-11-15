@@ -103,7 +103,7 @@ export class ChatService {
     }
     const controller = new AbortController();
     this.running.set(request.id, controller);
-    const deadline = setTimeout(() => controller.abort(), 120000);
+    const deadline = setTimeout(() => controller.abort(), 300000);
     const emit = (type: Event['type'], payload: unknown, a?: Artifact) =>
       onEvent(this.store.append(request.id, type, payload, a));
     this.store.message(input.conversationId, 'user', input.text);
@@ -140,7 +140,8 @@ export class ChatService {
           queryId: data.queryId,
           args: data.args,
         };
-      } else text = this.presentation.explain(response.reason);
+      } else if (response.kind === 'clarification') text = response.text;
+      else text = this.presentation.explain(response.reason);
       this.store.message(input.conversationId, 'assistant', text, artifact, evidence);
       emit('assistant.text.delta', { text, evidence });
       emit('request.completed', {});
@@ -151,6 +152,11 @@ export class ChatService {
         : e instanceof AppError
           ? e.code
           : 'REQUEST_FAILED';
+      const text = controller.signal.aborted
+        ? 'The response was cancelled or timed out. You can retry your request.'
+        : 'I could not generate a usable response from this request. Please retry, or clarify what you want to visualize. Your earlier messages are preserved.';
+      this.store.message(input.conversationId, 'assistant', text);
+      emit('assistant.text.delta', { text });
       emit('request.failed', { code });
       this.store.finish(request.id, 'failed');
     } finally {

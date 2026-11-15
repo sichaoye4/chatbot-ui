@@ -9,6 +9,11 @@ test('provider-independent planner supplies schema and registered guidance, not 
   const agent = new CapabilityPlanningAgent({
     complete: async (input) => {
       assert.match(input.instructions, /scopeMode=change-answer/);
+      assert.match(
+        input.instructions,
+        /keep ordinary charts and metrics together in ONE visual block/,
+      );
+      assert.match(input.instructions, /not row count alone/);
       assert.doesNotMatch(input.instructions, /payment|sla_met_rate|csv\./);
       assert.ok(input.schema);
       assert.match(input.context, /commerce.revenue/);
@@ -33,6 +38,7 @@ test('DeepSeek transport handles structured output without owning planning decis
       called = true;
       const request = JSON.parse(String(init?.body));
       assert.equal(request.tools[0].function.name, 'present_response');
+      assert.equal(request.thinking.type, 'enabled');
       assert.equal(request.messages[0].content, 'capability guidance');
       return new Response(
         JSON.stringify({

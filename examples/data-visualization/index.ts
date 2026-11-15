@@ -242,7 +242,11 @@ export function withVisualizationDemo(delegate: Agent): Agent {
       const text = context.text.toLowerCase().replace(/[- ]/g, '');
       const kinds = visualizationKinds.filter((kind) => text.includes(kind.toLowerCase()));
       const gallery = /visualization|chartgallery/.test(text);
-      if ((kinds.length || gallery) && /demo|sample|example/.test(text))
+      if (
+        (kinds.length || gallery) &&
+        context.text.length < 240 &&
+        /\b(demo|sample|example)\b/i.test(context.text)
+      )
         return {
           kind: 'visual',
           plan: visualizationPlan(

@@ -207,6 +207,11 @@ export type ResponsePlan = z.infer<typeof ResponsePlan>;
 
 export const DataResult = z.strictObject({
   rows: z.array(z.record(LocalId, Scalar)).max(10000),
+  // Connector-owned, schema-registered metadata; plans cannot supply executable content.
+  annotations: z
+    .record(CapabilityId, z.json())
+    .refine((value) => Object.keys(value).length <= 20, 'Too many annotations')
+    .optional(),
   provenance: z.strictObject({
     sourceId: z.string().min(1).max(160),
     sourceVersion: z.string().min(1).max(160),
@@ -243,6 +248,8 @@ export type Diagnostic = {
     | 'BUDGET_EXCEEDED'
     | 'DATA_FORBIDDEN'
     | 'RESULT_INVALID'
+    | 'REVISION_CONFLICT'
+    | 'IDEMPOTENCY_CONFLICT'
     | 'CANCELLED';
   path: string;
   message: string;
@@ -254,6 +261,8 @@ export class FoundationError extends Error {
 }
 export type Policy = {
   visible(ref: CapabilityRef, principal: Principal): boolean;
+  /** Optional principal-scoped field visibility. Query authorization still enforces arguments and row scope. */
+  visibleField?(ref: CapabilityRef, fieldId: string, principal: Principal): boolean;
   // Called server-side before every execution; no authorization is inferred from args or snapshots.
   authorize(
     ref: CapabilityRef,
@@ -270,6 +279,7 @@ export type PlanningContext = {
   capabilities: unknown;
   signal: AbortSignal;
   feedback: Diagnostic[];
+  choice?: { responseId: string; blockId: string; choiceId: string; label: string };
 };
 export interface PlanningAgent {
   propose(context: PlanningContext): Promise<unknown>;

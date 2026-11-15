@@ -1,0 +1,459 @@
+{
+  "schemaVersion": 1,
+  "title": "Banking Monolith → Microservices Migration: 18-Month Timeline & Milestones",
+  "layoutIntent": "overview",
+  "panels": [
+    {
+      "id": "migration-gantt",
+      "componentVersion": 1,
+      "title": "Migration schedule — Phases 1–6, tasks and milestones (Jan 2027 – Jun 2028)",
+      "bindingId": "schedule",
+      "importance": "primary",
+      "component": "gantt",
+      "config": {
+        "taskIdField": "taskId",
+        "labelField": "label",
+        "startField": "start",
+        "endField": "end",
+        "progressField": "progress",
+        "dependenciesField": "dependencies",
+        "kindField": "kind"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "id": "schedule",
+      "toolId": "provided.data",
+      "args": {
+        "origin": "user-provided",
+        "notes": [
+          "The source schedule gives month-level windows only (M1 = January 2027 … M18 = June 2028). Each month reference is shown as the full calendar-month window, e.g. 'M4' = 2027-04-01 to 2027-04-30 and 'M1–M2' = 2027-01-01 to 2027-02-28. Bars therefore indicate the month(s) named in the plan, not exact kickoff/finish days.",
+          "Month numbering follows the document: M1–M3 = Jan–Mar 2027, M4–M6 = Apr–Jun 2027, M7–M9 = Jul–Sep 2027, M10–M13 = Oct 2027–Jan 2028, M14–M16 = Feb–Apr 2028, M17–M18 = May–Jun 2028.",
+          "No completion progress was supplied for any task, so progress is null for every row rather than an assumed value.",
+          "No finish-to-start dependency links were specified between individual tasks; the dependency field is intentionally empty. D01–D03 in the source are dependency/risk entries with owners and mitigations, not schedulable task links.",
+          "The six milestones (MS1–MS6) are plotted on their stated target dates as zero-duration milestone markers: 31 Mar 2027, 30 Jun 2027, 30 Sep 2027, 31 Jan 2028, 30 Apr 2028, 30 Jun 2028.",
+          "Phase labels in the phase column are for reference/grouping in the underlying values; all 37 supplied activities and milestones are included."
+        ],
+        "fields": [
+          {
+            "name": "taskId",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "label",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "phase",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "start",
+            "type": "date",
+            "nullable": false
+          },
+          {
+            "name": "end",
+            "type": "date",
+            "nullable": false
+          },
+          {
+            "name": "progress",
+            "type": "number",
+            "nullable": true,
+            "unit": "ratio"
+          },
+          {
+            "name": "dependencies",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "nullable": false
+          }
+        ],
+        "rows": [
+          {
+            "taskId": "p1-1",
+            "label": "Project kickoff, stakeholder alignment, and governance established",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-01-01",
+            "end": "2027-01-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p1-2",
+            "label": "Legacy application assessment, dependency mapping, and technical debt analysis",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-01-01",
+            "end": "2027-02-28",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p1-3",
+            "label": "Identify service boundaries using Domain-Driven Design (DDD)",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-02-01",
+            "end": "2027-02-28",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p1-4",
+            "label": "Define target architecture, API standards, data ownership, and migration strategy",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-02-01",
+            "end": "2027-03-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p1-5",
+            "label": "Complete infrastructure sizing, risk assessment, and migration roadmap",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-03-01",
+            "end": "2027-03-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms1",
+            "label": "MS1 – Architecture & Migration Strategy Approved",
+            "phase": "Phase 1 – Discovery & Architecture",
+            "start": "2027-03-31",
+            "end": "2027-03-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "p2-1",
+            "label": "Establish Kubernetes infrastructure and cloud networking",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-04-01",
+            "end": "2027-04-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p2-2",
+            "label": "Implement CI/CD pipelines, API gateway, and service authentication",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-04-01",
+            "end": "2027-05-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p2-3",
+            "label": "Introduce centralized logging, distributed tracing, and observability",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-05-01",
+            "end": "2027-05-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p2-4",
+            "label": "Implement event streaming infrastructure and service communication standards",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-05-01",
+            "end": "2027-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p2-5",
+            "label": "Complete security, resilience, and disaster recovery baseline testing",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-06-01",
+            "end": "2027-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms2",
+            "label": "MS2 – Microservices Platform Production-Ready",
+            "phase": "Phase 2 – Platform Foundation",
+            "start": "2027-06-30",
+            "end": "2027-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "p3-1",
+            "label": "Extract Customer Profile Service from the monolith",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-07-01",
+            "end": "2027-07-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p3-2",
+            "label": "Implement Customer Preferences and Notification Services",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-07-01",
+            "end": "2027-08-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p3-3",
+            "label": "Deploy strangler-pattern routing for migrated capabilities",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-08-01",
+            "end": "2027-08-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p3-4",
+            "label": "Conduct integration, performance, and regression testing",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-08-01",
+            "end": "2027-09-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p3-5",
+            "label": "Execute pilot production rollout with rollback capability",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-09-01",
+            "end": "2027-09-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms3",
+            "label": "MS3 – First Three Microservices Live",
+            "phase": "Phase 3 – Pilot Migration",
+            "start": "2027-09-30",
+            "end": "2027-09-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "p4-1",
+            "label": "Extract Account Information Service",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2027-10-01",
+            "end": "2027-10-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p4-2",
+            "label": "Extract Transaction History and Balance Inquiry Services",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2027-10-01",
+            "end": "2027-11-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p4-3",
+            "label": "Implement Payment Initiation and Payment Validation Services",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2027-11-01",
+            "end": "2027-12-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p4-4",
+            "label": "Establish transaction reconciliation and audit controls",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2027-12-01",
+            "end": "2027-12-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p4-5",
+            "label": "Perform parallel runs against the legacy system",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2027-12-01",
+            "end": "2028-01-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p4-6",
+            "label": "Complete phased production migration of core banking APIs",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2028-01-01",
+            "end": "2028-01-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms4",
+            "label": "MS4 – Core Banking Microservices Operational",
+            "phase": "Phase 4 – Core Banking Services Migration",
+            "start": "2028-01-31",
+            "end": "2028-01-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "p5-1",
+            "label": "Migrate remaining reporting and supporting business services",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-02-01",
+            "end": "2028-02-29",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p5-2",
+            "label": "Complete service-specific database migration and data validation",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-02-01",
+            "end": "2028-03-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p5-3",
+            "label": "Conduct end-to-end integration testing across all microservices",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-03-01",
+            "end": "2028-03-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p5-4",
+            "label": "Execute performance, failover, disaster recovery, and penetration testing",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-03-01",
+            "end": "2028-04-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p5-5",
+            "label": "Complete user acceptance testing and production readiness assessment",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-04-01",
+            "end": "2028-04-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms5",
+            "label": "MS5 – All 12 Microservices Migrated",
+            "phase": "Phase 5 – Remaining Services & Data Migration",
+            "start": "2028-04-30",
+            "end": "2028-04-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "p6-1",
+            "label": "Monitor production stability and optimize performance",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-05-01",
+            "end": "2028-05-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p6-2",
+            "label": "Complete final data reconciliation and compliance review",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-05-01",
+            "end": "2028-05-31",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p6-3",
+            "label": "Decommission legacy application components",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-05-01",
+            "end": "2028-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p6-4",
+            "label": "Finalize operational documentation and knowledge transfer",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-06-01",
+            "end": "2028-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "p6-5",
+            "label": "Conduct post-implementation review and formal project closure",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-06-01",
+            "end": "2028-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "ms6",
+            "label": "MS6 – Legacy Backend Decommissioned & Project Closed",
+            "phase": "Phase 6 – Decommissioning & Project Closure",
+            "start": "2028-06-30",
+            "end": "2028-06-30",
+            "progress": null,
+            "dependencies": "",
+            "kind": "milestone"
+          }
+        ]
+      },
+      "filterMap": {}
+    }
+  ],
+  "filters": [],
+  "dataMode": "snapshot"
+}

@@ -322,7 +322,10 @@ export function withProjectDemo(delegate: Agent): Agent {
                 : /burn\s?up/.test(text)
                   ? 'burnup'
                   : 'burndown';
-        return { kind: 'visual', plan: projectPlan(kind) };
+        const plan = projectPlan(kind);
+        if (/standalone|separate messages/.test(text))
+          plan.messages = plan.panels.map((panel) => ({ id: panel.id, panelIds: [panel.id] }));
+        return { kind: 'visual', plan };
       }
       if (/gantt|flow\s?chart|burn\s?(down|up)|cumulative flow/.test(text))
         return { kind: 'explain', reason: 'project-data-required' };

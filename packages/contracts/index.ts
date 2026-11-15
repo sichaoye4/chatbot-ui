@@ -146,6 +146,16 @@ export const Plan = z
     title: z.string().min(1).max(160),
     layoutIntent: z.enum(['auto', 'overview', 'comparison', 'investigation']),
     panels: z.array(Panel).min(1).max(6),
+    messages: z
+      .array(
+        z.strictObject({
+          id: Id,
+          panelIds: z.array(Id).min(1).max(6),
+        }),
+      )
+      .min(1)
+      .max(6)
+      .optional(),
     bindings: z.array(Binding).min(1).max(6),
     filters: z
       .array(
@@ -162,6 +172,17 @@ export const Plan = z
   })
   .superRefine((plan, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (plan.messages) {
+      const ids = plan.messages.flatMap((message) => message.panelIds);
+      if (new Set(plan.messages.map((message) => message.id)).size !== plan.messages.length)
+        issue('Duplicate message IDs');
+      if (
+        ids.length !== plan.panels.length ||
+        new Set(ids).size !== ids.length ||
+        ids.some((id) => !plan.panels.some((panel) => panel.id === id))
+      )
+        issue('Messages must include every panel exactly once');
+    }
     for (const list of [plan.panels, plan.bindings, plan.filters])
       if (new Set(list.map((x) => x.id)).size !== list.length) issue('Duplicate IDs');
     for (const panel of plan.panels)
@@ -310,7 +331,7 @@ export const Event = z
 export type Event = z.infer<typeof Event>;
 export const Turn = z.strictObject({
   conversationId: Id,
-  text: z.string().min(1).max(4000),
+  text: z.string().min(1).max(16000),
   idempotencyKey: Id,
   artifactId: Id.optional(),
   baseRevision: z.number().int().positive().optional(),

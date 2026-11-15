@@ -1,16 +1,18 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { Dataset } from '../contracts/index.ts';
+import { dateValue } from '../contracts/calendar.ts';
 import {
-  dateValue,
   flowModel,
   ganttModel,
   projectSeries,
   validateProjectData,
-  type ProjectPanel,
-} from '../contracts/project-model.ts';
+  type ProjectViewPanel as ProjectPanel,
+  type ProjectViewData as ProjectData,
+} from '../contracts/project-validation.ts';
 
 const day = 86400000;
+const progressLabel = (value: number | null) =>
+  value === null ? 'Progress not supplied' : `${Math.round(value * 100)}% complete`;
 const date = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const colors = ['#586fd5', '#238793', '#8b62a8', '#b37326', '#526c8c', '#8b6173'];
 function moveFocus(event: KeyboardEvent<SVGGElement>) {
@@ -41,7 +43,7 @@ function lines(text: string) {
   return text.match(/.{1,22}(?:\s|$)|.{1,22}/g)?.slice(0, 3) ?? [text];
 }
 
-export function ProjectChart({ panel, data }: { panel: ProjectPanel; data: Dataset }) {
+export function ProjectChart({ panel, data }: { panel: ProjectPanel; data: ProjectData }) {
   try {
     validateProjectData(panel, data);
   } catch (error) {
@@ -58,7 +60,7 @@ function Gantt({
   data,
 }: {
   panel: Extract<ProjectPanel, { component: 'gantt' }>;
-  data: Dataset;
+  data: ProjectData;
 }) {
   const tasks = ganttModel(data.rows, panel.config);
   const [selected, select] = useState<string | null>(null);
@@ -137,7 +139,7 @@ function Gantt({
               data-inspect="task"
               role="button"
               tabIndex={selected === t.id || (!selected && i === 0) ? 0 : -1}
-              aria-label={`${t.name}: ${date(t.start)} to ${date(t.end)}, ${Math.round(t.progress * 100)}% complete${t.kind === 'milestone' ? ', milestone' : ''}`}
+              aria-label={`${t.name}: ${date(t.start)} to ${date(t.end)}, ${progressLabel(t.progress)}${t.kind === 'milestone' ? ', milestone' : ''}`}
               aria-pressed={selected === t.id}
               onFocus={() => select(t.id)}
               onClick={() => select(t.id)}
@@ -149,7 +151,7 @@ function Gantt({
                 {t.name.length > 25 ? t.name.slice(0, 23) + '…' : t.name}
               </text>
               <text className="project-small" x="8" y={y(i) + 14}>
-                {Math.round(t.progress * 100)}% · {t.kind}
+                {progressLabel(t.progress)} · {t.kind}
               </text>
               {t.kind === 'milestone' ? (
                 <path d={`M${x(t.start)},${y(i) - 9} l9 9 -9 9 -9 -9 Z`} fill="var(--chart-line)" />
@@ -167,7 +169,7 @@ function Gantt({
                   <rect
                     x={x(t.start)}
                     y={y(i) - 10}
-                    width={Math.max(0, x(t.end) - x(t.start)) * t.progress}
+                    width={Math.max(0, x(t.end) - x(t.start)) * (t.progress ?? 0)}
                     height="20"
                     rx="4"
                     fill="var(--chart-bar)"
@@ -183,8 +185,7 @@ function Gantt({
           <>
             <strong>{picked.name}</strong>
             <span>
-              {date(picked.start)} → {date(picked.end)} · {Math.round(picked.progress * 100)}%
-              complete
+              {date(picked.start)} → {date(picked.end)} · {progressLabel(picked.progress)}
             </span>
             <span>
               Predecessors:{' '}
@@ -205,7 +206,7 @@ function Flowchart({
   data,
 }: {
   panel: Extract<ProjectPanel, { component: 'flowchart' }>;
-  data: Dataset;
+  data: ProjectData;
 }) {
   const model = flowModel(data.rows, panel.config);
   const viewport = useRef<HTMLDivElement>(null);
@@ -416,7 +417,7 @@ function WorkChart({
   data,
 }: {
   panel: Extract<ProjectPanel, { component: 'burndown' | 'cumulativeFlow' }>;
-  data: Dataset;
+  data: ProjectData;
 }) {
   const { fields, points } = projectSeries(data.rows, panel.config);
   const container = useRef<HTMLDivElement>(null);

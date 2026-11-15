@@ -6,7 +6,9 @@ The interface is a full-screen conversation. Charts, tables and optional multi-p
 
 This is a working local reference application, not a completed corporate deployment. See [progress and issues](docs/IMPLEMENTATION_PROGRESS.md) for exact verified scope and remaining tasks.
 
-A generic v2 backend foundation is being developed alongside this reference app. It has capability registrations, typed response/control plans, semantic validation, host policy and a provider-independent planner. See the [generalization plan](docs/GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md) and [implemented v2 contracts](docs/FOUNDATION_V2_CONTRACTS.md). The browser still uses the compatible v1 path; `pnpm test:foundation:live` explicitly tests the new backend rather than switching the app.
+A generic v2 foundation is being developed alongside this reference app. It includes a reusable React renderer and shell, injected backend client, capability registrations, scoped controls and a provider-independent planner. The reference server also serves an **experimental v2 chat** at `/v2.html`; `/` remains the v1 application. V2 includes the core, project, statistical and geographic renderers; advanced charts require a connector that registers and supplies the corresponding trusted semantics. The CSV connector does not provide those advanced semantics. The full migration and release gates remain incomplete. See the [generalization plan](docs/GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md), [v2 contract](docs/FOUNDATION_V2_CONTRACTS.md) and [current progress](docs/IMPLEMENTATION_PROGRESS.md).
+
+For an experimental TypeScript-source consumer package, run `node scripts/package-foundation-v2.mjs <new-name>`. It stages public contracts, React, client, server and CSS exports under `artifacts/foundation-sdk/<new-name>`. Use a TypeScript-aware bundler with React 19 and Zod 4; the server entry requires Node 24 and Node type definitions. `pnpm test:foundation:consumer` builds and tests a separate host using those exports. This distribution is not yet a published, compiled or stable SDK. See the [consumer guide](docs/FOUNDATION_V2_CONSUMER_GUIDE.md).
 
 ## Run locally
 
@@ -21,9 +23,11 @@ pnpm dev:csv
 
 Open http://127.0.0.1:4317. The app binds to loopback only and uses an explicitly labeled single-user demo identity. Do not expose it to a network as an authenticated corporate service.
 
+After building, open http://127.0.0.1:4317/v2.html to try the v2 shell and reference backend. Set `AGENT_MODE=deepseek` for its model-backed Q&A; deterministic mode returns a configuration message in v2. V2 stores conversations, response generations and bounded replay events in the same local SQLite database, using separate tables from v1. Its history is not a migration of v1 conversations. The reference SQLite host assumes a single server process; it is not a production identity or multi-worker deployment.
+
 Copy `.env.example` to `.env.local` for a new installation. Set `AGENT_MODE=deterministic` for the scripted demo, or `AGENT_MODE=deepseek` for actual model-backed Q&A. Set `DEEPSEEK_API_KEY_FILE` to an existing secret file (preferred) or inject `DEEPSEEK_API_KEY` into the server environment. Never use a `VITE_` variable for credentials. The current workspace's ignored `.env.local` references the user-authorized Football Legend key file; it contains no copied key.
 
-The live adapter uses `https://api.deepseek.com` and `deepseek-v4-flash` by default, matching that project's integration. It sends the question, schemas, selected artifact and bounded tool results (at most 20 rows per model-facing tool result). The user approved this bounded transfer for the test. Changing destination or data scope requires a new decision.
+The live adapter uses `https://api.deepseek.com` and `deepseek-v4-flash` by default, matching that project's integration. The v1 agent sends the question, schemas, selected artifact and bounded tool results (at most 20 rows per model-facing tool result). The v2 planner sends the question, authorized capability descriptors, the selected prior plan and validation feedback; it does not send CSV rows or computed results to the model. The user approved the bounded test transfer. Changing destination or data scope requires a new decision.
 
 ## Walkthrough
 
@@ -45,11 +49,15 @@ pnpm typecheck
 pnpm lint
 pnpm test:unit
 pnpm test:integration
+pnpm test:foundation:consumer
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:e2e:deterministic
 pnpm test:e2e:live
 pnpm test:spike
+pnpm test:e2e:foundation
+pnpm test:e2e:foundation:reference-live
+pnpm test:foundation:heldout:live
 ```
 
 Build before browser tests: the harness starts the production build in isolated processes/databases and cleans up its own resources. Each browser run retains traces, screenshots, reports and sanitized execution evidence in `artifacts/e2e/<timestamp>/`. Missing live credentials fail the live gate rather than substituting a mock. Live tests spend provider tokens; deterministic and renderer tests require no provider calls. `lint` currently means formatting validation; semantic checks are the strict TypeScript build and tests.

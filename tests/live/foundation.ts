@@ -41,7 +41,8 @@ const cases = [
   {
     catalog: catalog(),
     principal,
-    question: 'What is net revenue for the east region during 2024? Give the total as text.',
+    question:
+      'What was net revenue for the east region on 2024-01-01? Give that day’s value as text.',
     expected: 130,
     field: 'net',
   },
@@ -52,6 +53,13 @@ for (const item of cases) {
   const signal = AbortSignal.timeout(180000);
   const candidate = await runtime.plan(agent, item.question, item.principal, signal);
   const output = await runtime.execute(candidate, item.principal, signal);
+  const published = await runtime.ingest(candidate, output.datasets, item.principal, signal, {
+    messageId: 'liveMessage',
+    responseId: 'liveResponse',
+    revision: 1,
+    generation: 0,
+  });
+  assert.equal(published.status, 'complete');
   const grounded = candidate.facts.filter((fact) => fact.field.fieldId === item.field);
   assert.ok(grounded.length > 0, 'Expected a grounded numerical fact');
   assert.equal(
@@ -59,6 +67,11 @@ for (const item of cases) {
     item.expected,
   );
   assert.ok(candidate.blocks.some((block) => block.kind === 'text'));
+  if (item.field === 'net') {
+    const binding = candidate.bindings.find((entry) => entry.id === grounded[0].field.bindingId)!;
+    assert.equal(binding.fixedArgs.region, 'east');
+    assert.deepEqual(binding.fixedArgs.period, ['2024-01-01', '2024-01-01']);
+  }
   evidence.push({ question: item.question, plan: candidate, facts: output.facts });
   console.log(`PASS: ${item.question}`);
 }
@@ -82,6 +95,13 @@ for (const item of [
   const signal = AbortSignal.timeout(180000);
   const candidate = await runtime.plan(agent, item.question, item.principal, signal);
   const output = await runtime.execute(candidate, item.principal, signal);
+  const published = await runtime.ingest(candidate, output.datasets, item.principal, signal, {
+    messageId: 'liveMessage',
+    responseId: 'liveResponse',
+    revision: 1,
+    generation: 0,
+  });
+  assert.equal(published.status, 'complete');
   writeFileSync(`${path}/candidate-${item.kind}.json`, JSON.stringify(candidate, null, 2));
   const visuals = candidate.blocks.filter((block) => block.kind === 'visual');
   assert.ok(visuals.length > 0);

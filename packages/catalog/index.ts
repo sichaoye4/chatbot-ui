@@ -18,6 +18,10 @@ export type Tool = {
   description: string;
   args: z.ZodType;
   fields: FieldMeta[];
+  describeArgs?: (args: Record<string, unknown>) => {
+    fields: FieldMeta[];
+    partitions: { categoryField: string; valueField: string }[];
+  };
   execute: (args: Record<string, unknown>, principal: Principal) => Dataset;
   visualizationViews?: VisualizationKind[];
   aggregate?: boolean;
@@ -100,7 +104,8 @@ export class Catalog {
     for (const filter of plan.filters)
       if (!plan.bindings.some((b) => filter.id in b.filterMap)) throw new AppError('PLAN_INVALID');
     for (const binding of plan.bindings) {
-      const tool = this.tool(binding.toolId, principal);
+      const registered = this.tool(binding.toolId, principal);
+      const tool = { ...registered, ...registered.describeArgs?.(binding.args) };
       tool.args.parse(binding.args);
       for (const [filter, arg] of Object.entries(binding.filterMap)) {
         const def = plan.filters.find((f) => f.id === filter)!;

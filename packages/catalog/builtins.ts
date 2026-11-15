@@ -1,4 +1,7 @@
 import { visualizationDefinitions } from '../contracts/visualization.ts';
+import { VISUALIZATION_ANNOTATION, visualizationV2Model } from '../contracts/visualization-v2.ts';
+import { pieModel } from '../contracts/pie-data.ts';
+import { projectV2Model } from '../contracts/project-v2.ts';
 import { z } from 'zod';
 import type {
   ComponentRegistration,
@@ -7,6 +10,14 @@ import type {
 } from './foundation.ts';
 
 const emptyProps = z.strictObject({});
+const validateProjectResult: NonNullable<ComponentRegistration['validateResult']> = (
+  element,
+  datasets,
+  fields,
+) => {
+  const binding = Object.values(element.roles).flat()[0].bindingId;
+  projectV2Model(element, datasets[binding], fields[binding]);
+};
 export const componentDefinitions: ComponentRegistration[] = [
   ...Object.entries(visualizationDefinitions).map(([kind, d]): ComponentRegistration => ({
     ref: { id: `ui.${kind}`, version: 1 },
@@ -21,6 +32,11 @@ export const componentDefinitions: ComponentRegistration[] = [
         ? z.strictObject({ mode: z.enum(['absolute', 'percent']) })
         : emptyProps,
     singleBinding: true,
+    requiredAnnotations: [VISUALIZATION_ANNOTATION],
+    validateResult: (element, datasets, fields) => {
+      const binding = Object.values(element.roles).flat()[0].bindingId;
+      visualizationV2Model(element, datasets[binding], fields[binding]);
+    },
     layout: { minWidth: d.width, minHeight: d.height },
     roles: Object.fromEntries(
       Object.entries(d.roles).map(([role, type]) => [role, { types: [type], min: 1, max: 1 }]),
@@ -39,6 +55,7 @@ export const componentDefinitions: ComponentRegistration[] = [
   })),
   {
     ref: { id: 'ui.gantt', version: 1 },
+    validateResult: validateProjectResult,
     description: 'Project tasks, milestones, progress and finish-to-start dependencies',
     guidance: {
       useWhen: 'A tool provides complete dated tasks and explicit dependencies',
@@ -62,6 +79,7 @@ export const componentDefinitions: ComponentRegistration[] = [
   },
   {
     ref: { id: 'ui.flowchart', version: 1 },
+    validateResult: validateProjectResult,
     description: 'Typed process nodes and directed edges, including decisions and feedback loops',
     guidance: {
       useWhen: 'An authorized tool supplies explicit process nodes and edges',
@@ -81,6 +99,7 @@ export const componentDefinitions: ComponentRegistration[] = [
   },
   {
     ref: { id: 'ui.burndown', version: 1 },
+    validateResult: validateProjectResult,
     description: 'Remaining work against supplied ideal, or completed work against scope',
     guidance: {
       useWhen: 'Dated work observations have a trusted ideal or scope series',
@@ -102,6 +121,7 @@ export const componentDefinitions: ComponentRegistration[] = [
   },
   {
     ref: { id: 'ui.cumulativeFlow', version: 1 },
+    validateResult: validateProjectResult,
     description: 'Complete mutually exclusive workflow-state counts by date',
     guidance: {
       useWhen: 'A tool supplies complete state snapshots; each item occupies exactly one state',
@@ -188,6 +208,19 @@ export const componentDefinitions: ComponentRegistration[] = [
     props: emptyProps,
     singleBinding: true,
     partitionRoles: { category: 'category', value: 'value' },
+    validateResult: (element, datasets) => {
+      const category = element.roles.category[0];
+      const value = element.roles.value[0];
+      const data = datasets[category.bindingId];
+      if (!data.rows.length) return;
+      const model = pieModel(
+        data.rows,
+        category.fieldId,
+        value.fieldId,
+        data.provenance.truncated || data.provenance.nextCursor !== null,
+      );
+      if (!model.ok) throw new Error('Invalid partition');
+    },
     layout: { minWidth: 320, minHeight: 360 },
     roles: {
       category: { types: ['string'], roles: ['dimension'], min: 1, max: 1 },

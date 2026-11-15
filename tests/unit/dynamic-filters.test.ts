@@ -94,6 +94,6 @@ test('options stay within fixed scope; undeclared filter changes cannot broaden 
     );
     assert.deepEqual(next.filters, {});
   } finally {
-    app.store.close();
+    await app.close();
   }
 });

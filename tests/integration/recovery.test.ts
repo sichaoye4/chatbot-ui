@@ -50,6 +50,6 @@ test('cancelled execution reaches a terminal state without replacing prior artif
     assert.equal((events.at(-1)!.payload as { code: string }).code, 'REQUEST_CANCELLED');
     assert.equal(app.store.request(id, p).status, 'failed');
   } finally {
-    app.store.close();
+    await app.close();
   }
 });

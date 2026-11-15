@@ -1,3 +1,4 @@
+import { responseMessages } from '../../packages/layout/messages.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -129,4 +130,24 @@ test('synthetic demo routing is explicit and never claims to read real project d
     kind: 'explain',
     reason: 'delegate',
   });
+});
+
+test('dense diagrams receive standalone messages while explicit agent grouping takes precedence', () => {
+  const plan = projectPlan('overview');
+  const data = runtime.binding(plan, 'schedule', {}, principal);
+  const artifact = { plan, datasets: { schedule: { status: 'ready' as const, data } } };
+  assert.equal(responseMessages(artifact).length, 1);
+  artifact.datasets.schedule.data = {
+    ...data,
+    rows: Array.from({ length: 21 }, () => data.rows[0]),
+  };
+  const groups = responseMessages(artifact);
+  assert.deepEqual(groups[0].panelIds, [plan.panels[0].id]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(
+    groups.flatMap((group) => group.panelIds),
+    plan.panels.map((panel) => panel.id),
+  );
+  plan.messages = [{ id: 'explicit', panelIds: plan.panels.map((panel) => panel.id) }];
+  assert.deepEqual(responseMessages(artifact), plan.messages);
 });

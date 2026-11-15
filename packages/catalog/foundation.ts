@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CapabilityRef,
+  CapabilityId,
   DataResult,
   FieldDefinition,
   FoundationError,
@@ -33,12 +34,38 @@ export type ComponentRegistration = {
   partitionRoles?: { category: string; value: string };
   layout: { minWidth: number; minHeight: number };
   validate?: (element: Element, fields: Record<string, FieldDefinition[]>) => string[];
+  requiredAnnotations?: string[];
+  validateResult?: (
+    element: Element,
+    datasets: Record<string, DataResult>,
+    fields: Record<string, FieldDefinition[]>,
+  ) => void;
 };
 export type ControlRegistration = {
   ref: CapabilityRef;
   description: string;
   guidance: Guidance;
   value: z.ZodType;
+};
+export type OptionResolverRegistration = {
+  ref: CapabilityRef;
+  /** The target argument is excluded from scopeArgs; all other effective arguments are retained. */
+  resolve(input: {
+    scopeArgs: Arguments;
+    argument: string;
+    context: unknown;
+    search?: string;
+    cursor?: string;
+    signal: AbortSignal;
+  }): Promise<{ options: { value: string; label: string }[]; nextCursor: string | null }>;
+  /** Authoritatively validate a selection independently of the currently displayed page. */
+  accepts(input: {
+    value: string;
+    scopeArgs: Arguments;
+    argument: string;
+    context: unknown;
+    signal: AbortSignal;
+  }): Promise<boolean>;
 };
 export type ArgumentCapability = {
   description: string;
@@ -52,8 +79,13 @@ export type ToolRegistration = {
   description: string;
   args: z.ZodType<Arguments>;
   fields: FieldDefinition[];
+  /** Host attests that metadata, arguments, provenance and annotations are safe under field projection. */
+  fieldProjectionSafe?: boolean;
   grain: string;
   interactive: Record<string, ArgumentCapability>;
+  /** The connector, not the planner, defines and supplies these result annotations. */
+  resultAnnotations?: Record<string, z.ZodType>;
+  resultViews?: CapabilityRef[];
   execute: (args: Arguments, context: unknown, signal: AbortSignal) => Promise<DataResult>;
 };
 export type DomainRegistration = {
@@ -86,6 +118,7 @@ export class FoundationCatalog {
   private tools = new Map<string, ToolRegistration>();
   private components = new Map<string, ComponentRegistration>();
   private controls = new Map<string, ControlRegistration>();
+  private optionResolvers = new Map<string, OptionResolverRegistration>();
   private domains: DomainRegistration[] = [];
   private revision = 0;
   constructor(
@@ -103,6 +136,7 @@ export class FoundationCatalog {
   }
   registerComponent(component: ComponentRegistration) {
     z.toJSONSchema(component.props);
+    for (const annotation of component.requiredAnnotations ?? []) CapabilityId.parse(annotation);
     for (const role of Object.values(component.roles))
       if (
         !Number.isInteger(role.min) ||
@@ -118,6 +152,7 @@ export class FoundationCatalog {
       guidance: structuredClone(component.guidance),
       roles: structuredClone(component.roles),
       layout: { ...component.layout },
+      requiredAnnotations: component.requiredAnnotations && [...component.requiredAnnotations],
     });
     return this;
   }
@@ -128,6 +163,10 @@ export class FoundationCatalog {
       ref: { ...control.ref },
       guidance: structuredClone(control.guidance),
     });
+    return this;
+  }
+  registerOptionResolver(resolver: OptionResolverRegistration) {
+    this.add(this.optionResolvers, { ...resolver, ref: { ...resolver.ref } });
     return this;
   }
   registerDomain(domain: DomainRegistration) {
@@ -142,13 +181,33 @@ export class FoundationCatalog {
         throw new Error('Duplicate tool');
       keys.add(key(tool.ref));
       z.toJSONSchema(tool.args);
+      for (const [annotation, schema] of Object.entries(tool.resultAnnotations ?? {})) {
+        CapabilityId.parse(annotation);
+        z.toJSONSchema(schema);
+      }
+      const views = tool.resultViews ?? [];
+      if (new Set(views.map(key)).size !== views.length) throw new Error('Duplicate result view');
+      for (const view of views) {
+        const component = this.components.get(key(CapabilityRef.parse(view)));
+        if (
+          !component ||
+          (component.requiredAnnotations ?? []).some(
+            (annotation) => !Object.hasOwn(tool.resultAnnotations ?? {}, annotation),
+          )
+        )
+          throw new Error('Result view lacks required registered semantics');
+      }
       tool.fields.forEach((f) => FieldDefinition.parse(f));
       if (!tool.grain || new Set(tool.fields.map((f) => f.id)).size !== tool.fields.length)
         throw new Error('Invalid result fields/grain');
       for (const capability of Object.values(tool.interactive)) {
         for (const control of capability.controls)
           if (!this.controls.has(key(control))) throw new Error('Unknown control registration');
-        if (capability.options) CapabilityRef.parse(capability.options);
+        if (
+          capability.options &&
+          !this.optionResolvers.has(key(CapabilityRef.parse(capability.options)))
+        )
+          throw new Error('Unknown option resolver registration');
       }
     }
     const installed = {
@@ -160,6 +219,8 @@ export class FoundationCatalog {
         ref: { ...tool.ref },
         fields: tool.fields.map((f) => FieldDefinition.parse(f)),
         interactive: structuredClone(tool.interactive),
+        resultAnnotations: tool.resultAnnotations && { ...tool.resultAnnotations },
+        resultViews: tool.resultViews && structuredClone(tool.resultViews),
       })),
     };
     this.domains.push(installed);
@@ -178,19 +239,56 @@ export class FoundationCatalog {
     return entry;
   }
   tool(ref: CapabilityRef, principal: Principal) {
-    return this.available(this.tools, ref, principal);
+    const tool = this.available(this.tools, ref, principal);
+    const fields = this.permittedFields(tool, principal);
+    if (!fields.length || (fields.length !== tool.fields.length && !tool.fieldProjectionSafe))
+      fail('CAPABILITY_UNAVAILABLE', ref.id, 'Capability is unavailable');
+    return tool;
   }
-  snapshot(principal: Principal) {
+  private permittedFields(tool: ToolRegistration, principal: Principal) {
+    return tool.fields.filter(
+      (field) =>
+        !this.policy.visibleField ||
+        this.policy.visibleField(tool.ref, field.id, principal) === true,
+    );
+  }
+  fields(ref: CapabilityRef, principal: Principal) {
+    return this.permittedFields(this.tool(ref, principal), principal);
+  }
+  control(ref: CapabilityRef, principal: Principal) {
+    return this.available(this.controls, ref, principal);
+  }
+  optionResolver(ref: CapabilityRef, principal: Principal) {
+    return this.available(this.optionResolvers, ref, principal);
+  }
+  snapshot(principal: Principal, clientComponents?: CapabilityRef[]) {
     const permitted = <T extends { ref: CapabilityRef }>(map: Map<string, T>) =>
       [...map.values()].filter((entry) => this.policy.visible(entry.ref, principal));
-    const tools = permitted(this.tools);
-    const components = permitted(this.components);
+    const tools = permitted(this.tools).filter((tool) => {
+      const fields = this.permittedFields(tool, principal);
+      return (
+        fields.length > 0 && (fields.length === tool.fields.length || tool.fieldProjectionSafe)
+      );
+    });
+    const components = permitted(this.components).filter(
+      (entry) => !clientComponents || clientComponents.some((ref) => key(ref) === key(entry.ref)),
+    );
     const controls = permitted(this.controls);
     // This is an invalidation token, never authorization evidence. Query policy is rechecked.
+    const projection = tools
+      .filter((tool) => this.permittedFields(tool, principal).length !== tool.fields.length)
+      .map(
+        (tool) =>
+          `${key(tool.ref)}:${this.permittedFields(tool, principal)
+            .map((field) => field.id)
+            .join(',')}`,
+      )
+      .sort()
+      .join('|');
     const snapshotId = `catalog-${this.revision}-${[...tools, ...components, ...controls]
       .map((v) => key(v.ref))
       .sort()
-      .join('|')}`;
+      .join('|')}${projection ? `-${projection}` : ''}`;
     // Bound the identifier independently of registry size using an opaque synchronous fingerprint.
     let hash = 2166136261;
     for (const char of snapshotId) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
@@ -206,16 +304,31 @@ export class FoundationCatalog {
         ref: t.ref,
         description: t.description,
         arguments: z.toJSONSchema(t.args),
-        fields: t.fields,
+        fields: this.permittedFields(t, principal),
         grain: t.grain,
-        partitions: t.partitions ?? [],
+        resultAnnotations: Object.fromEntries(
+          Object.entries(t.resultAnnotations ?? {}).map(([name, schema]) => [
+            name,
+            z.toJSONSchema(schema),
+          ]),
+        ),
+        resultViews: t.resultViews ?? [],
+        partitions: (t.partitions ?? []).filter((partition) => {
+          const ids = this.permittedFields(t, principal).map((field) => field.id);
+          return ids.includes(partition.categoryField) && ids.includes(partition.valueField);
+        }),
         interactive: Object.fromEntries(
-          Object.entries(t.interactive).map(([name, cap]) => [
+          (this.permittedFields(t, principal).length === t.fields.length
+            ? Object.entries(t.interactive)
+            : []
+          ).map(([name, cap]) => [
             name,
             {
               description: cap.description,
               controls: cap.controls.filter((c) => controls.some((v) => key(c) === key(v.ref))),
-              ...(cap.options && this.policy.visible(cap.options, principal)
+              ...(cap.options &&
+              this.optionResolvers.has(key(cap.options)) &&
+              this.policy.visible(cap.options, principal)
                 ? { options: cap.options }
                 : {}),
             },
@@ -223,7 +336,17 @@ export class FoundationCatalog {
         ),
       })),
       components: components.map(
-        ({ ref, description, guidance, props, roles, singleBinding, partitionRoles, layout }) => ({
+        ({
+          ref,
+          description,
+          guidance,
+          props,
+          roles,
+          singleBinding,
+          partitionRoles,
+          layout,
+          requiredAnnotations,
+        }) => ({
           ref,
           description,
           guidance,
@@ -232,6 +355,7 @@ export class FoundationCatalog {
           singleBinding,
           partitionRoles,
           layout,
+          requiredAnnotations: requiredAnnotations ?? [],
         }),
       ),
       controls: controls.map(({ ref, description, guidance, value }) => ({
@@ -242,7 +366,11 @@ export class FoundationCatalog {
       })),
     });
   }
-  validate(candidate: unknown, principal: Principal): ResponsePlan {
+  validate(
+    candidate: unknown,
+    principal: Principal,
+    clientComponents?: CapabilityRef[],
+  ): ResponsePlan {
     let serialized: string;
     try {
       serialized = JSON.stringify(candidate);
@@ -255,7 +383,7 @@ export class FoundationCatalog {
     if (!parsed.success)
       fail('SCHEMA_INVALID', '', parsed.error.issues.map((i) => i.message).join('; '));
     const plan = parsed.data;
-    if (plan.capabilitySnapshotId !== this.snapshot(principal).id)
+    if (plan.capabilitySnapshotId !== this.snapshot(principal, clientComponents).id)
       fail(
         'STALE_CAPABILITIES',
         'capabilitySnapshotId',
@@ -289,9 +417,7 @@ export class FoundationCatalog {
     }
     const field = (ref: FieldRef) => {
       const binding = bindings.get(ref.bindingId)!;
-      const definition = this.tool(binding.tool, principal).fields.find(
-        (f) => f.id === ref.fieldId,
-      );
+      const definition = this.fields(binding.tool, principal).find((f) => f.id === ref.fieldId);
       if (!definition) fail('SEMANTIC_INVALID', ref.fieldId, 'Unknown result field');
       return definition;
     };
@@ -305,8 +431,36 @@ export class FoundationCatalog {
     }
     for (const element of elements) {
       const component = this.available(this.components, element.component, principal);
+      if (clientComponents && !clientComponents.some((ref) => key(ref) === key(component.ref)))
+        fail('CAPABILITY_UNAVAILABLE', element.id, 'Component is not installed by the client');
       if (!component.props.safeParse(element.props).success)
         fail('SCHEMA_INVALID', element.id, 'Invalid component properties');
+      if (component.requiredAnnotations?.length) {
+        const bindingIds = new Set(
+          Object.values(element.roles)
+            .flat()
+            .map((role) => role.bindingId),
+        );
+        if (
+          !bindingIds.size ||
+          [...bindingIds].some((id) => {
+            const binding = bindings.get(id);
+            if (!binding) return true;
+            const tool = this.tool(binding.tool, principal);
+            return (
+              !tool.resultViews?.some((view) => key(view) === key(component.ref)) ||
+              component.requiredAnnotations!.some(
+                (annotation) => !Object.hasOwn(tool.resultAnnotations ?? {}, annotation),
+              )
+            );
+          })
+        )
+          fail(
+            'SEMANTIC_INVALID',
+            element.id,
+            'This source does not declare the required component semantics',
+          );
+      }
       if (Object.keys(element.roles).some((r) => !Object.hasOwn(component.roles, r)))
         fail('SEMANTIC_INVALID', element.id, 'Unknown component role');
       const metadata: Record<string, FieldDefinition[]> = {};
@@ -374,6 +528,12 @@ export class FoundationCatalog {
     for (const target of control.targets) {
       const binding = plan.bindings.find((b) => b.id === target.bindingId)!;
       const tool = this.tool(binding.tool, principal);
+      if (this.fields(binding.tool, principal).length !== tool.fields.length)
+        fail(
+          'CAPABILITY_UNAVAILABLE',
+          control.id,
+          'Controls are unavailable for a restricted projection',
+        );
       const capability = Object.hasOwn(tool.interactive, target.argument)
         ? tool.interactive[target.argument]
         : undefined;
@@ -398,20 +558,50 @@ export class FoundationCatalog {
   }
   validateResult(ref: CapabilityRef, result: unknown, principal: Principal): DataResult {
     const tool = this.tool(ref, principal);
+    const permitted = this.fields(ref, principal);
+    const annotations =
+      result && typeof result === 'object' && 'annotations' in result
+        ? result.annotations
+        : undefined;
+    const stack: { value: unknown; depth: number }[] = [{ value: annotations, depth: 0 }];
+    let nodes = 0;
+    while (stack.length) {
+      const item = stack.pop()!;
+      if (++nodes > 10000 || item.depth > 16)
+        fail('BUDGET_EXCEEDED', ref.id, 'Result annotation nesting exceeds budget');
+      if (item.value && typeof item.value === 'object')
+        for (const value of Object.values(item.value)) stack.push({ value, depth: item.depth + 1 });
+    }
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(result);
+    } catch {
+      fail('RESULT_INVALID', ref.id, 'Result must be JSON');
+    }
+    if (!serialized! || new TextEncoder().encode(serialized!).length > this.limits.maxBytes)
+      fail('BUDGET_EXCEEDED', ref.id, 'Result exceeds byte budget');
     const parsed = DataResult.safeParse(result);
     if (!parsed.success) fail('RESULT_INVALID', ref.id, 'Invalid result envelope');
     const data = parsed.data;
+    for (const [name, value] of Object.entries(data.annotations ?? {})) {
+      const schema = tool.resultAnnotations?.[name];
+      if (!schema || !schema.safeParse(value).success)
+        fail('RESULT_INVALID', ref.id, 'Result annotations are not registered or valid');
+    }
     if (data.rows.length > this.limits.maxRows)
       fail('BUDGET_EXCEEDED', ref.id, 'Result exceeds row budget');
     if (data.provenance.grain !== tool.grain)
       fail('RESULT_INVALID', ref.id, 'Unexpected result grain');
     for (const row of data.rows) {
-      if (
-        Object.keys(row).length !== tool.fields.length ||
-        Object.keys(row).some((id) => !tool.fields.some((f) => f.id === id))
-      )
+      const full =
+        Object.keys(row).length === tool.fields.length &&
+        tool.fields.every((field) => Object.hasOwn(row, field.id));
+      const projected =
+        Object.keys(row).length === permitted.length &&
+        permitted.every((field) => Object.hasOwn(row, field.id));
+      if (!full && !projected)
         fail('RESULT_INVALID', ref.id, 'Result fields do not match registered projection');
-      for (const field of tool.fields) {
+      for (const field of full ? tool.fields : permitted) {
         const value = row[field.id];
         if (value === null && field.nullable) continue;
         const valid =
@@ -424,6 +614,52 @@ export class FoundationCatalog {
           fail('RESULT_INVALID', field.id, 'Result value violates registered field semantics');
       }
     }
-    return data;
+    return {
+      ...data,
+      rows: data.rows.map((row) =>
+        Object.fromEntries(permitted.map((field) => [field.id, row[field.id]])),
+      ),
+    };
+  }
+  validatePresentationResults(
+    plan: ResponsePlan,
+    datasets: Record<string, DataResult>,
+    principal: Principal,
+  ) {
+    for (const element of plan.blocks.flatMap((block) =>
+      block.kind === 'visual' ? block.elements : [],
+    )) {
+      const component = this.available(this.components, element.component, principal);
+      const bindings = [
+        ...new Set(
+          Object.values(element.roles)
+            .flat()
+            .map((role) => role.bindingId),
+        ),
+      ];
+      for (const bindingId of bindings) {
+        const data = datasets[bindingId];
+        if (
+          !data ||
+          (component.requiredAnnotations ?? []).some(
+            (name) => !Object.hasOwn(data.annotations ?? {}, name),
+          )
+        )
+          fail('RESULT_INVALID', element.id, 'Result is missing required component semantics');
+      }
+      if (component.validateResult) {
+        const fields = Object.fromEntries(
+          bindings.map((bindingId) => {
+            const binding = plan.bindings.find((item) => item.id === bindingId)!;
+            return [bindingId, this.fields(binding.tool, principal)];
+          }),
+        );
+        try {
+          component.validateResult(element, datasets, fields);
+        } catch {
+          fail('RESULT_INVALID', element.id, 'Result does not satisfy visualization semantics');
+        }
+      }
+    }
   }
 }

@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "title": "Monolith → Microservices: 12-Month Plan (Jan–Dec 2027)",
+  "layoutIntent": "auto",
+  "panels": [
+    {
+      "id": "programme-gantt",
+      "componentVersion": 1,
+      "title": "Phases and milestones, Jan–Dec 2027",
+      "bindingId": "plan",
+      "importance": "primary",
+      "component": "gantt",
+      "config": {
+        "taskIdField": "taskId",
+        "labelField": "label",
+        "startField": "start",
+        "endField": "end",
+        "progressField": "progress",
+        "dependenciesField": "dependencies",
+        "kindField": "kind"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "id": "plan",
+      "toolId": "provided.data",
+      "args": {
+        "origin": "user-provided",
+        "rows": [
+          {
+            "taskId": "P1",
+            "label": "Phase 1 — Discovery & Architecture (M1–M2 · Jan–Feb)",
+            "start": "2027-01-01",
+            "end": "2027-02-28",
+            "progress": null,
+            "dependencies": "",
+            "kind": "task"
+          },
+          {
+            "taskId": "MS1",
+            "label": "MS1 — Architecture & Roadmap Approved (28 Feb 2027)",
+            "start": "2027-02-28",
+            "end": "2027-02-28",
+            "progress": null,
+            "dependencies": "P1",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "P2",
+            "label": "Phase 2 — Platform Foundation (M3–M4 · Mar–Apr)",
+            "start": "2027-03-01",
+            "end": "2027-04-30",
+            "progress": null,
+            "dependencies": "MS1",
+            "kind": "task"
+          },
+          {
+            "taskId": "MS2",
+            "label": "MS2 — Platform Production-Ready (30 Apr 2027)",
+            "start": "2027-04-30",
+            "end": "2027-04-30",
+            "progress": null,
+            "dependencies": "P2",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "P3",
+            "label": "Phase 3 — Pilot Migration, 3 services (M5–M6 · May–Jun)",
+            "start": "2027-05-01",
+            "end": "2027-06-30",
+            "progress": null,
+            "dependencies": "MS2",
+            "kind": "task"
+          },
+          {
+            "taskId": "MS3",
+            "label": "MS3 — First 3 Services Live (30 Jun 2027)",
+            "start": "2027-06-30",
+            "end": "2027-06-30",
+            "progress": null,
+            "dependencies": "P3",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "P4",
+            "label": "Phase 4 — Core Banking Migration, 5 services (M7–M10 · Jul–Oct)",
+            "start": "2027-07-01",
+            "end": "2027-10-31",
+            "progress": null,
+            "dependencies": "MS3",
+            "kind": "task"
+          },
+          {
+            "taskId": "MS4",
+            "label": "MS4 — Core Banking Operational, 8 of 12 live (31 Oct 2027)",
+            "start": "2027-10-31",
+            "end": "2027-10-31",
+            "progress": null,
+            "dependencies": "P4",
+            "kind": "milestone"
+          },
+          {
+            "taskId": "P5",
+            "label": "Phase 5 — Remaining Services, Data & Decommission (M11–M12 · Nov–Dec)",
+            "start": "2027-11-01",
+            "end": "2027-12-31",
+            "progress": null,
+            "dependencies": "MS4",
+            "kind": "task"
+          },
+          {
+            "taskId": "MS5",
+            "label": "MS5 — All 12 Live, Legacy Decommissioned, Closed (31 Dec 2027)",
+            "start": "2027-12-31",
+            "end": "2027-12-31",
+            "progress": null,
+            "dependencies": "P5",
+            "kind": "milestone"
+          }
+        ],
+        "fields": [
+          {
+            "name": "taskId",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "label",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "start",
+            "type": "date",
+            "nullable": false
+          },
+          {
+            "name": "end",
+            "type": "date",
+            "nullable": false
+          },
+          {
+            "name": "progress",
+            "type": "number",
+            "nullable": true,
+            "unit": "ratio"
+          },
+          {
+            "name": "dependencies",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "nullable": false
+          }
+        ],
+        "notes": [
+          "Phases were supplied only as month ranges (e.g., M1–M2 · Jan–Feb), so each bar is drawn as the full calendar months of its range: Jan 1–Feb 28, Mar 1–Apr 30, May 1–Jun 30, Jul 1–Oct 31, Nov 1–Dec 31, 2027.",
+          "Milestone dates are taken verbatim from the supplied milestones table: 28 Feb, 30 Apr, 30 Jun, 31 Oct and 31 Dec 2027.",
+          "No completion percentages were supplied, so progress is null for every row; no progress is assumed or invented.",
+          "Dependencies shown are finish-to-start links implied by the phase → milestone sequence in the source; no other dependencies are asserted.",
+          "Risks (D01, D02, R01–R03), KPI targets and objectives appear in the supplied text but are not plotted because they have no start/end dates."
+        ]
+      },
+      "filterMap": {}
+    }
+  ],
+  "filters": [],
+  "dataMode": "snapshot"
+}

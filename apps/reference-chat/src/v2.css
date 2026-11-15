@@ -1,0 +1,23 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+.reference-v2 {
+  position: relative;
+  height: 100%;
+}
+.reference-v2 .new-chat {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  z-index: 1;
+  font: inherit;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #aebbd0;
+  border-radius: 0.5rem;
+  background: white;
+  color: #273952;
+  cursor: pointer;
+}

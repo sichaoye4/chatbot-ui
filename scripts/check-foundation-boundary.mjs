@@ -2,10 +2,20 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 const roots = [
   'packages/contracts/foundation.ts',
+  'packages/contracts/protocol.ts',
   'packages/contracts/visualization.ts',
+  'packages/contracts/visualization-validation.ts',
+  'packages/contracts/visualization-v2.ts',
+  'packages/contracts/geography.ts',
+  'packages/contracts/calendar.ts',
+  'packages/contracts/pie-data.ts',
+  'packages/contracts/project-validation.ts',
+  'packages/contracts/project-v2.ts',
   'packages/catalog/foundation.ts',
   'packages/catalog/builtins.ts',
   'packages/server-runtime/foundation.ts',
+  'packages/server-runtime/controls.ts',
+  'packages/server-runtime/control-store.ts',
   'packages/agent-adapter/foundation.ts',
 ];
 const allowed = new Set(roots.map((file) => resolve(file)));

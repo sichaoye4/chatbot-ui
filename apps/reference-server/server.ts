@@ -1,3 +1,5 @@
+import { providedDataTool } from '../../packages/server-runtime/provided-data.ts';
+import { suppliedScheduleTool } from '../../examples/project-management/supplied-schedule.ts';
 import {
   visualizationTools,
   withVisualizationDemo,
@@ -15,6 +17,14 @@ import { DeepSeekAgent, DeterministicAgent } from '../../examples/csv-analytics/
 import { csvPresentation } from '../../examples/csv-analytics/presentation.ts';
 import { CsvRepository, SOURCE_HASH } from '../../examples/csv-analytics/index.ts';
 import { projectTools, withProjectDemo } from '../../examples/project-management/index.ts';
+import { createCsvFoundationBackend } from '../../examples/csv-analytics/reference-v2.ts';
+import {
+  FoundationError,
+  LocalId as ProtocolLocalId,
+  type PlanningAgent,
+  type Principal as FoundationPrincipal,
+} from '../../packages/contracts/foundation.ts';
+import { BackendAction, OptionQuery, TurnRequest } from '../../packages/contracts/protocol.ts';
 
 export function createApplication(
   options: {
@@ -22,22 +32,38 @@ export function createApplication(
     mode?: 'deepseek' | 'deterministic';
     testToken?: string;
     staticDir?: string;
+    foundationAgent?: PlanningAgent;
   } = {},
 ) {
   const repo = new CsvRepository(
     resolve('sample_data/training_data_masked_final_1.csv'),
     SOURCE_HASH,
   );
+  const foundation = createCsvFoundationBackend(
+    repo,
+    options.database ?? '.runtime/chat.sqlite',
+    options.mode ?? 'deterministic',
+    options.foundationAgent,
+  );
   const store = new Store(options.database ?? '.runtime/chat.sqlite');
   const queries = new QueryRuntime(
-    new Catalog([...repo.tools(), ...projectTools(), ...visualizationTools()]),
+    new Catalog([
+      ...repo.tools(),
+      ...projectTools(),
+      ...visualizationTools(),
+      suppliedScheduleTool(),
+      providedDataTool(),
+    ]),
   );
-  const agent = withVisualizationDemo(
-    withProjectDemo(options.mode === 'deepseek' ? new DeepSeekAgent() : new DeterministicAgent()),
-  );
+  const agent =
+    options.mode === 'deepseek'
+      ? new DeepSeekAgent()
+      : withVisualizationDemo(withProjectDemo(new DeterministicAgent()));
   const presentation = {
     ...csvPresentation,
     explain(reason: string) {
+      if (reason === 'supplied-schedule-invalid')
+        return 'I found your supplied project schedule, but could not safely interpret all its dates. Use Project Duration: N Months (Month YYYY – Month YYYY), phase headings with (Months 1–3), M1–M2: task bullets, and Milestone MS1 — Name (31 March 2027). Check dates and phase boundaries. Each view supports up to 40 tasks/milestones; split larger schedules into smaller requests. I have not substituted demo data.';
       if (reason === 'visualization-data-required')
         return 'This source does not supply the required statistical, partition or geographic semantics. Try a histogram demo, comparison visualization demo, or specialized visualization demo.';
       return reason === 'project-data-required'
@@ -45,6 +71,13 @@ export function createApplication(
         : csvPresentation.explain(reason);
     },
     visual(artifact: Parameters<typeof csvPresentation.visual>[0]) {
+      if (artifact.plan.bindings.some((b) => b.toolId === 'provided.data'))
+        return (
+          artifact.plan.title +
+          '. Review the source notes for assumptions and any missing information.'
+        );
+      if (artifact.plan.bindings.some((b) => b.toolId === 'project.suppliedSchedule'))
+        return 'Here is your supplied project plan: a phase and milestone overview, followed by the detailed task schedule in a separate message. Dates are planned targets. Month-only tasks span their stated calendar months; progress and dependency links were not supplied. Risks, deliverables and success metrics remain context rather than measured project status.';
       if (artifact.plan.bindings.some((b) => b.toolId.startsWith('viz.')))
         return 'Synthetic visualization demonstration. Inspect the charts and underlying values below; these are not connected business records.';
       return artifact.plan.bindings.some((b) => b.toolId.startsWith('pm.'))
@@ -76,7 +109,10 @@ export function createApplication(
     }
   };
   const limits = new Map<string, { start: number; count: number }>();
+  let inFlight = 0;
+  const drained = new Set<() => void>();
   const server = createServer(async (req, res) => {
+    inFlight++;
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader(
@@ -117,6 +153,97 @@ export function createApplication(
           sourceHash: SOURCE_HASH,
         });
         return;
+      }
+      if (path.startsWith('/api/v2/')) {
+        // The host owns identity; retaining the principal reference permits revocation checks during a request.
+        const principal: FoundationPrincipal = { subject: p.id, context: { csvIdentity: p } };
+        const signal = AbortSignal.timeout(180000);
+        if (path === '/api/v2/capabilities' && req.method === 'GET') {
+          json(res, foundation.backend.negotiate(principal));
+          return;
+        }
+        const conversationV2 = path.match(/^\/api\/v2\/conversations\/([\w-]+)$/);
+        if (conversationV2 && req.method === 'GET') {
+          json(
+            res,
+            await foundation.backend.history(
+              ProtocolLocalId.parse(conversationV2[1]),
+              principal,
+              signal,
+            ),
+          );
+          return;
+        }
+        const snapshotV2 = path.match(/^\/api\/v2\/responses\/([\w-]+)$/);
+        if (snapshotV2 && req.method === 'GET') {
+          json(
+            res,
+            await foundation.backend.snapshot(
+              ProtocolLocalId.parse(snapshotV2[1]),
+              principal,
+              signal,
+            ),
+          );
+          return;
+        }
+        const requestV2 = path.match(/^\/api\/v2\/requests\/([\w-]+)\/(events|cancel)$/);
+        if (requestV2 && requestV2[2] === 'events' && req.method === 'GET') {
+          json(
+            res,
+            await foundation.backend.replay(
+              ProtocolLocalId.parse(requestV2[1]),
+              Number(url.searchParams.get('after') ?? '-1'),
+              principal,
+              signal,
+            ),
+          );
+          return;
+        }
+        if (requestV2 && requestV2[2] === 'cancel' && req.method === 'POST') {
+          await body(req);
+          json(
+            res,
+            await foundation.backend.cancel(ProtocolLocalId.parse(requestV2[1]), principal, signal),
+          );
+          return;
+        }
+        if (path === '/api/v2/options' && req.method === 'POST') {
+          json(
+            res,
+            await foundation.backend.options(OptionQuery.parse(await body(req)), principal, signal),
+          );
+          return;
+        }
+        if ((path === '/api/v2/turns' || path === '/api/v2/actions') && req.method === 'POST') {
+          const input = await body(req);
+          const events =
+            path === '/api/v2/turns'
+              ? foundation.backend.turn(TurnRequest.parse(input), principal, signal)
+              : foundation.backend.action(BackendAction.parse(input), principal, signal);
+          const iterator = events[Symbol.asyncIterator]();
+          const first = await iterator.next();
+          if (first.done) throw new AppError('STREAM_INTERRUPTED', 409);
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-store',
+            Connection: 'keep-alive',
+          });
+          try {
+            if (!res.destroyed)
+              res.write(`id: ${first.value.sequence}\ndata: ${JSON.stringify(first.value)}\n\n`);
+            for (;;) {
+              const next = await iterator.next();
+              if (next.done) break;
+              if (!res.destroyed)
+                res.write(`id: ${next.value.sequence}\ndata: ${JSON.stringify(next.value)}\n\n`);
+            }
+          } finally {
+            await iterator.return?.();
+          }
+          res.end();
+          return;
+        }
+        throw new AppError('NOT_FOUND', 404);
       }
       if (path === '/api/chat/turns' && req.method === 'POST') {
         const input = Turn.parse(await body(req));
@@ -180,6 +307,10 @@ export function createApplication(
         json(res, { modelCalls: agent.calls, queries: queries.executions });
         return;
       }
+      if (path === '/api/testing/v2/telemetry' && testAuthorized) {
+        json(res, { modelCalls: foundation.provider?.calls.length ?? 0 });
+        return;
+      }
       if (path === '/api/testing/fault' && testAuthorized && req.method === 'POST') {
         service.fault = z
           .strictObject({
@@ -227,19 +358,56 @@ export function createApplication(
       res.writeHead(200, { 'Content-Type': types[extname(file)] ?? 'application/octet-stream' });
       res.end(readFileSync(file));
     } catch (error) {
+      const known =
+        error instanceof Error &&
+        [
+          'DATA_FORBIDDEN',
+          'IDEMPOTENCY_CONFLICT',
+          'REPLAY_EXPIRED',
+          'REPLAY_CURSOR_INVALID',
+          'MESSAGE_CONFLICT',
+        ].includes(error.message)
+          ? error.message
+          : undefined;
       const code =
         error instanceof AppError
           ? error.code
-          : error instanceof z.ZodError
-            ? 'VALIDATION_FAILED'
-            : 'INTERNAL_ERROR';
-      if (!res.headersSent)
+          : error instanceof FoundationError
+            ? error.diagnostic.code
+            : known
+              ? known
+              : error instanceof z.ZodError
+                ? 'VALIDATION_FAILED'
+                : 'INTERNAL_ERROR';
+      if (!res.headersSent && !res.destroyed)
         json(
           res,
           { error: code },
-          error instanceof AppError ? error.status : error instanceof z.ZodError ? 400 : 500,
+          error instanceof AppError
+            ? error.status
+            : error instanceof FoundationError
+              ? error.diagnostic.code === 'DATA_FORBIDDEN'
+                ? 403
+                : 409
+              : known
+                ? known === 'DATA_FORBIDDEN'
+                  ? 403
+                  : known === 'REPLAY_EXPIRED'
+                    ? 410
+                    : known === 'REPLAY_CURSOR_INVALID'
+                      ? 400
+                      : 409
+                : error instanceof z.ZodError
+                  ? 400
+                  : 500,
         );
-      else res.end();
+      else if (!res.destroyed) res.end();
+    } finally {
+      inFlight--;
+      if (!inFlight) {
+        for (const resolve of drained) resolve();
+        drained.clear();
+      }
     }
   });
   return {
@@ -248,8 +416,14 @@ export function createApplication(
     repo,
     service,
     close: async () => {
+      const closing = server.listening
+        ? new Promise<void>((done, reject) => server.close((e) => (e ? reject(e) : done())))
+        : Promise.resolve();
       for (const c of service.running.values()) c.abort();
-      await new Promise<void>((done, reject) => server.close((e) => (e ? reject(e) : done())));
+      foundation.backend.shutdown();
+      await closing;
+      if (inFlight) await new Promise<void>((resolve) => drained.add(resolve));
+      foundation.close();
       store.close();
     },
   };

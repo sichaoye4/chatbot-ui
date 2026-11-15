@@ -183,3 +183,23 @@ test('demo router requires explicit synthetic intent and honors six-panel ceilin
     if (result.kind === 'visual') assert.ok(result.plan.panels.length <= 6);
   }
 });
+
+test('demonstrated and example text inside a supplied plan never activate a canned demo', async () => {
+  const agent = withVisualizationDemo({
+    mode: 'test',
+    calls: [],
+    run: async () => ({ kind: 'explain', reason: 'delegate' }),
+  });
+  for (const text of [
+    'Visualize this timeline. Availability demonstrated in December.',
+    'Visualize this timeline\n' + 'Example acceptance criteria. '.repeat(20),
+  ]) {
+    const result = await agent.run({
+      text,
+      principal,
+      queries: new QueryRuntime(new Catalog(visualizationTools())),
+      signal: new AbortController().signal,
+    });
+    assert.notEqual(result.kind, 'visual');
+  }
+});

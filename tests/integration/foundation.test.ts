@@ -58,6 +58,69 @@ test('execution authorizes arguments before querying and rejects a changed scope
     /DATA_FORBIDDEN/,
   );
 });
+
+test('multi-binding execution and ingestion reauthorize every source immediately before publication', async () => {
+  function changingCatalog() {
+    let calls = 0;
+    let epoch = 1;
+    return catalog({
+      ...permissivePolicy,
+      authorize: async () => {
+        const current = epoch;
+        if (++calls === 4) epoch = 2;
+        return { scopeKey: `epoch-${current}`, context: {} };
+      },
+    });
+  }
+  function twoBindings(c: ReturnType<typeof catalog>) {
+    const candidate = plan(c);
+    const binding = structuredClone(candidate.bindings[0]);
+    binding.id = 'other';
+    candidate.bindings.push(binding);
+    const block = candidate.blocks[0];
+    if (block.kind !== 'visual') throw new Error('Expected visual');
+    const element = structuredClone(block.elements[0]);
+    element.id = 'otherChart';
+    for (const refs of Object.values(element.roles))
+      for (const ref of refs) ref.bindingId = 'other';
+    block.elements.push(element);
+    return candidate;
+  }
+  const executionCatalog = changingCatalog();
+  await assert.rejects(
+    new FoundationRuntime(executionCatalog).execute(
+      twoBindings(executionCatalog),
+      principal,
+      new AbortController().signal,
+    ),
+    /DATA_FORBIDDEN/,
+  );
+  const ingestionCatalog = changingCatalog();
+  const candidate = twoBindings(ingestionCatalog);
+  const data = {
+    rows: [{ date: '2024-01-01', net: 170 }],
+    provenance: {
+      sourceId: 'fixture',
+      sourceVersion: '1',
+      queryId: 'query1',
+      executedAt: '2026-01-01T00:00:00Z',
+      grain: 'one row per day',
+      truncated: false,
+      nextCursor: null,
+      warnings: [],
+    },
+  };
+  await assert.rejects(
+    new FoundationRuntime(ingestionCatalog).ingest(
+      candidate,
+      { data, other: data },
+      principal,
+      new AbortController().signal,
+      { messageId: 'message1', responseId: 'response1', revision: 1, generation: 0 },
+    ),
+    /DATA_FORBIDDEN/,
+  );
+});
 test('host agent receives registered capabilities and structured bounded repair feedback', async () => {
   const c = catalog();
   const runtime = new FoundationRuntime(c);

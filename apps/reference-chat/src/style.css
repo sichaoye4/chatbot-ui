@@ -1294,3 +1294,47 @@ tbody tr:hover {
     --artifact-padding: 16px;
   }
 }
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.panel-heading h3,
+.panel-heading h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.panel-heading button {
+  flex-shrink: 0;
+}
+.component-modal {
+  width: calc(100vw - 48px);
+  max-width: 1800px;
+  height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 48px);
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 24px;
+  overflow: auto;
+  color: #243047;
+  background: white;
+}
+.component-modal::backdrop {
+  background: rgb(15 23 42 / 60%);
+}
+.component-modal > .panel-heading {
+  margin-bottom: 20px;
+}
+.expanded-panel-content {
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .component-modal {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 12px;
+  }
+}

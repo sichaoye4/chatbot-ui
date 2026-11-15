@@ -149,6 +149,6 @@ test('one to two to six panels, deduplicated metrics, filters without agent, gen
     await Promise.all([old, latest]);
     assert.equal(app.store.artifact(filtered.artifactId, p).filters.domain, 'kyc');
   } finally {
-    app.store.close();
+    await app.close();
   }
 });

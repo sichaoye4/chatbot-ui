@@ -8,6 +8,10 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Prevent react-lang 1.1.1 from auto-mounting OpenUI Inspect before it loads.
+      globalThis[Symbol.for('openui.devtools.autoMount')] = true;
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

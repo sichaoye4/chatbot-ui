@@ -7,7 +7,9 @@ import { randomUUID } from 'node:crypto';
 type Runtime = { url: string; token: string; restart: () => Promise<void> };
 export const test = base.extend<{ runtime: Runtime }>({
   runtime: async ({}, use, info) => {
-    const mode = info.project.name === 'live' ? 'deepseek' : 'deterministic';
+    const mode = ['live', 'foundation-reference-live'].includes(info.project.name)
+      ? 'deepseek'
+      : 'deterministic';
     if (mode === 'deepseek' && !process.env.DEEPSEEK_API_KEY && !process.env.DEEPSEEK_API_KEY_FILE)
       throw new Error('LIVE_GATE_BLOCKED: configure DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE');
     const dir = mkdtempSync(join(tmpdir(), 'csv-browser-'));

@@ -88,4 +88,28 @@ Source footers now show the actual dataset identifier, timestamp and warnings in
 - Browser tests cover all four forms, burnup mode, keyboard selection, branch inspection, feedback loops, orientation, zoom/fit, exact-value tables, provenance, reload, mobile widths and axe accessibility checks.
 - Existing unit, integration, deterministic-browser and renderer-spike suites are regression gates. Live provider evaluation is separate and is not implied by deterministic demo success.
 
-Not included: real Jira/MS Project connectors, drag-to-reschedule, working-day calendars, dependency lag/types beyond finish-to-start, resource leveling, critical-path calculation, diagram authoring, freeform text-to-diagram generation, export, or swimlanes. These require explicit domain contracts and further interaction design. Useful next project views are sprint velocity, resource-capacity heatmaps and risk matrices; they are not advertised as implemented.
+Not included: real Jira/MS Project connectors, drag-to-reschedule, working-day calendars, dependency lag/types beyond finish-to-start, resource leveling, critical-path calculation, diagram authoring, export, or swimlanes. These require explicit domain contracts and further interaction design. Useful next project views are sprint velocity, resource-capacity heatmaps and risk matrices; they are not advertised as implemented.
+
+### User-supplied content: direct model planning
+
+In DeepSeek mode, every request reaches the LLM directly. No timeline parser or
+keyword demo router runs before it. `provided.data` accepts the model's structured
+rows, field metadata, provenance label and notes, making supplied text/tables usable
+by compatible registered components. The model decides the component and message
+grouping. Schema and chart validation run before publication, with one bounded
+repair opportunity. Clarification or failure produces a readable retry response.
+Synthetic canned tools are excluded from the LLM's tools and accepted plans.
+
+Thinking mode is enabled by default in both provider paths; set
+`DEEPSEEK_THINKING=disabled` only to opt out. Multi-step tool calls retain provider
+reasoning fields in backend request history, without publishing them to the UI.
+
+The old strict schedule importer is retained only for compatibility with previously
+stored artifacts. It does not route new chat requests. Deterministic mode remains
+an explicit demo/test harness, not a general LLM replacement.
+
+Live verification: `pnpm exec tsx --env-file-if-exists=.env.local tests/live/provided-content.ts`.
+This sends both project fixtures and a small bar-chart request to the configured
+provider. Outputs and call metadata are saved in `artifacts/provided-content/`.
+Browser regression fixtures were captured from actual live results; they are not
+used to generate chat answers.

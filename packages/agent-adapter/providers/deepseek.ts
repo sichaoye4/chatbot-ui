@@ -37,14 +37,14 @@ export class DeepSeekPlanningModel implements PlanningModel {
       `${this.configuration.baseUrl.replace(/\/$/, '')}/chat/completions`,
       {
         method: 'POST',
-        signal: AbortSignal.any([input.signal, AbortSignal.timeout(60000)]),
+        signal: AbortSignal.any([input.signal, AbortSignal.timeout(120000)]),
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: this.configuration.model,
           temperature: 0,
-          max_tokens: 6000,
+          max_tokens: 16000,
           stream: false,
-          thinking: { type: 'disabled' },
+          thinking: { type: process.env.DEEPSEEK_THINKING === 'disabled' ? 'disabled' : 'enabled' },
           messages: [
             { role: 'system', content: input.instructions },
             { role: 'user', content: input.context },
@@ -59,7 +59,9 @@ export class DeepSeekPlanningModel implements PlanningModel {
               },
             },
           ],
-          tool_choice: { type: 'function', function: { name: 'present_response' } },
+          // Thinking mode accepts automatic tool selection; a forced function is rejected.
+          // The response is still required to contain exactly the presentation tool call below.
+          tool_choice: 'auto',
         }),
       },
     );

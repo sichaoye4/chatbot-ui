@@ -36,5 +36,11 @@ export default defineConfig({
     },
     { name: 'live', testMatch: ['journey.spec.ts', 'dynamic-filters.spec.ts', 'pie.spec.ts'] },
     { name: 'spike', testMatch: 'spike.spec.ts' },
+    {
+      name: 'foundation',
+      testMatch: ['foundation-v2.spec.ts', 'foundation-controls.spec.ts', 'foundation-viz.spec.ts'],
+    },
+    { name: 'foundation-live', testMatch: 'foundation-live.spec.ts' },
+    { name: 'foundation-reference-live', testMatch: 'foundation-reference.spec.ts' },
   ],
 });

@@ -43,3 +43,15 @@ test('semantic validator rejects incorrect field roles and invented tools', () =
     ),
   );
 });
+
+test('message groups partition panels without dropping, duplicating or inventing panels', () => {
+  const plan = csvPlan('overview');
+  const messages = plan.panels.map((panel) => ({ id: panel.id, panelIds: [panel.id] }));
+  assert.equal(Plan.parse({ ...plan, messages }).messages?.length, plan.panels.length);
+  for (const invalid of [
+    messages.slice(1),
+    [...messages, messages[0]],
+    [{ id: 'bad', panelIds: ['unknown'] }],
+  ])
+    assert.throws(() => Plan.parse({ ...plan, messages: invalid }));
+});

@@ -1,0 +1,17 @@
+import { FoundationCatalog, FoundationRuntime, registerBuiltins } from '@source/chat-foundation-v2/server';
+import { MaterializedResponse, type BackendClient } from '@source/chat-foundation-v2/contracts';
+import { FoundationHttpClient } from '@source/chat-foundation-v2/client';
+import { ChatShell, type ClientRegistry } from '@source/chat-foundation-v2/react';
+
+// Importing these from package exports also checks the declaration/source closure.
+if (![FoundationCatalog, FoundationRuntime, registerBuiltins, MaterializedResponse, FoundationHttpClient, ChatShell].every(Boolean))
+  throw new Error('Missing public export');
+const catalog = registerBuiltins(new FoundationCatalog({
+  visible: () => true,
+  authorize: async () => ({ scopeKey: 'fixture', context: {} }),
+}));
+if (!(new FoundationRuntime(catalog) instanceof FoundationRuntime)) throw new Error('Server construction failed');
+const registry: ClientRegistry = {};
+const optionalClient: BackendClient | undefined = undefined;
+void registry;
+void optionalClient;

@@ -1,19 +1,26 @@
 import { useEffect, useRef, useId, useState, type ReactNode } from 'react';
-import type { Dataset, Row } from '../contracts/index.ts';
+import type { Row } from '../contracts/index.ts';
 import { geographyAssets } from '../contracts/geography.ts';
 import {
   validateVisualizationData,
   visualizationRows,
-  type VisualizationPanel,
-} from '../contracts/visualization-model.ts';
-import { dateValue } from '../contracts/project-model.ts';
+  type VisualizationViewPanel,
+  type VisualizationViewData,
+} from '../contracts/visualization-validation.ts';
+import { dateValue } from '../contracts/calendar.ts';
 
 const colors = ['#586fd5', '#21838d', '#8c6598', '#a36c28', '#487b60', '#756e62'];
 const fmt = (v: number) => Number(v.toPrecision(4)).toLocaleString('en-US');
 const short = (v: unknown, max = 20) =>
   String(v).length > max ? `${String(v).slice(0, max - 1)}…` : String(v);
 type Mark = { label: string; shape: ReactNode };
-export function VisualizationChart({ panel, data }: { panel: VisualizationPanel; data: Dataset }) {
+export function VisualizationChart({
+  panel,
+  data,
+}: {
+  panel: VisualizationViewPanel;
+  data: VisualizationViewData;
+}) {
   const [selected, setSelected] = useState(0);
   const uid = useId().replace(/:/g, '');
   const container = useRef<HTMLDivElement>(null);

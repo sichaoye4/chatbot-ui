@@ -669,3 +669,23 @@ Reviewed on 2026-11-14:
 - [Dashboard authentication](https://www.openui.com/docs/dashboards/authentication) — hosted dashboard integration boundary.
 
 All module names, application APIs, contracts, budgets, layout rules, and acceptance targets in this document are proposed framework design. They are not claims that OpenUI provides those features automatically. No application implementation or browser/runtime validation was performed as part of authoring this specification.
+
+### Standalone messages and component expansion
+
+The active v1 chat plan accepts optional `messages`, an ordered array of
+`{ id, panelIds }` groups. Each group renders as a separate assistant message in
+one answer. Groups must include every panel exactly once; missing, duplicate or
+unknown panels are rejected. The existing six-panel answer budget still applies.
+Omitting this field preserves compact layouts, except that diagram types with
+more than 20 result rows automatically receive their own message. Explicit agent
+groups take precedence over that heuristic. Groups retain the same artifact,
+source snapshots and revision; shared controls appear in the first message.
+Grouping survives streaming recovery and conversation reload through the stored plan.
+
+Every panel has an Expand button, including historical snapshots. Expansion opens
+a viewport-sized native dialog with the same renderer, source details and access
+mode. Close, Escape or a backdrop click dismisses it and restores trigger focus.
+Chart-local selections and zoom reset when switching between inline and expanded
+views. Query/filter state remains attached to the artifact.
+
+Try: `Show a project management demo in separate messages`.

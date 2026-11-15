@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Dataset } from '../contracts/index.ts';
-import { pieModel, percent } from './pie-model.ts';
+import { pieModel } from './pie-model.ts';
 
 const colors = [
   '#586fd5',
@@ -21,15 +21,23 @@ export function PieChart({
   category,
   value,
   title,
+  locale,
 }: {
-  data: Dataset;
+  data: Pick<Dataset, 'rows' | 'truncated'>;
   category: string;
   value: string;
   title: string;
+  locale?: string;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const id = useId();
   const model = pieModel(data.rows, category, value, data.truncated);
+  const percent = (share: number) =>
+    new Intl.NumberFormat(locale ?? 'en-US', {
+      style: 'percent',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(share);
   if (!model.ok) return <p role="status">{model.reason}</p>;
   let angle = -Math.PI / 2;
   const slices = model.slices.map((slice) => {
@@ -67,7 +75,7 @@ export function PieChart({
                 role="button"
                 tabIndex={0}
                 className={`pie-slice ${active === index ? 'is-active' : ''}`}
-                aria-label={`${slice.label}: ${percent(slice.share)} (${slice.value.toLocaleString('en-US')})`}
+                aria-label={`${slice.label}: ${percent(slice.share)} (${slice.value.toLocaleString(locale ?? 'en-US')})`}
                 aria-describedby={active === index ? `${id}-tooltip` : undefined}
                 onPointerEnter={() => setActive(index)}
                 onFocus={() => setActive(index)}
@@ -93,7 +101,8 @@ export function PieChart({
             <span>{selected.label}</span>
             <strong>{percent(selected.share)}</strong>
             <span>
-              {selected.value.toLocaleString('en-US')} / {model.total.toLocaleString('en-US')}
+              {selected.value.toLocaleString(locale ?? 'en-US')} /{' '}
+              {model.total.toLocaleString(locale ?? 'en-US')}
             </span>
           </div>
         )}
@@ -114,14 +123,14 @@ export function PieChart({
               />
               <span>{slice.label}</span>
               <strong>{percent(slice.share)}</strong>
-              <span>{slice.value.toLocaleString('en-US')}</span>
+              <span>{slice.value.toLocaleString(locale ?? 'en-US')}</span>
             </button>
           </li>
         ))}
       </ul>
       <p className="chart-hint">
-        Total: {model.total.toLocaleString('en-US')} · Percentages are shares of this total,
-        rounded.
+        Total: {model.total.toLocaleString(locale ?? 'en-US')} · Percentages are shares of this
+        total, rounded.
       </p>
     </div>
   );

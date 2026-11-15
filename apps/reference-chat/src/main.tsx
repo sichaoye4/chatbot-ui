@@ -10,6 +10,8 @@ import {
 import { layout } from '../../../packages/layout/index.ts';
 import { OpenUIPanel } from '../../../packages/renderer-openui/index.tsx';
 import './style.css';
+import { ExpandablePanel } from './expandable-panel.tsx';
+import { responseMessages } from '../../../packages/layout/messages.ts';
 
 type Message = { id: string; role: string; text: string; evidence?: unknown; visual?: Artifact };
 function InlineArtifact({
@@ -19,7 +21,11 @@ function InlineArtifact({
   busy,
   action,
   openRecord,
+  panelIds,
+  showToolbar = true,
 }: {
+  panelIds?: string[];
+  showToolbar?: boolean;
   artifact: Artifact;
   current: boolean;
   updating: boolean;
@@ -56,7 +62,10 @@ function InlineArtifact({
       active = false;
     };
   }, [current, artifact.artifactId, artifact.revision, artifact.generationId]);
-  const placements = layout(artifact.plan.panels, width);
+  const panels = panelIds
+    ? panelIds.map((id) => artifact.plan.panels.find((panel) => panel.id === id)!)
+    : artifact.plan.panels;
+  const placements = layout(panels, width);
   return (
     <section
       className="inline-artifact"
@@ -77,7 +86,7 @@ function InlineArtifact({
           </div>
         </div>
       )}
-      {current && (
+      {current && showToolbar && (
         <div className="toolbar">
           {artifact.plan.filters.map((filter) => (
             <label key={filter.id}>
@@ -112,13 +121,23 @@ function InlineArtifact({
       {!current && <p className="muted">Earlier response · preserved snapshot</p>}
       <p className="scope">
         Scope:{' '}
-        {Object.entries({ ...artifact.plan.bindings[0]?.args, ...artifact.filters })
-          .filter(([, v]) => v !== null)
+        {Object.entries({
+          ...(artifact.plan.bindings[0]?.toolId === 'provided.data'
+            ? {}
+            : artifact.plan.bindings[0]?.args),
+          ...artifact.filters,
+        })
+          .filter(([k, v]) => v !== null && k !== 'sourceText' && k !== 'view')
           .map(([k, v]) => `${k}: ${v}`)
-          .join(' · ') || 'All authorized source records'}
+          .join(' · ') ||
+          (artifact.plan.bindings.some(
+            (b) => b.toolId === 'project.suppliedSchedule' || b.toolId === 'provided.data',
+          )
+            ? 'Content snapshot for this response'
+            : 'All authorized source records')}
       </p>
       <div className={`panel-grid ${updating ? 'updating' : ''}`}>
-        {artifact.plan.panels.map((panel, i) => {
+        {panels.map((panel, i) => {
           const state = artifact.datasets[panel.bindingId];
           return (
             <article
@@ -130,37 +149,38 @@ function InlineArtifact({
                 minHeight: placements[i].minHeight,
               }}
             >
-              <h3>{panel.title}</h3>
-              {!state || state.status === 'loading' ? (
-                <div className="skeleton" role="status">
-                  Loading source data…
-                </div>
-              ) : state.status === 'error' ? (
-                <div role="alert">
-                  <p>Source unavailable: {state.code}</p>
-                  <button onClick={() => void action({ type: 'refresh' })}>Retry source</button>
-                </div>
-              ) : (
-                <OpenUIPanel
-                  readOnly={!current}
-                  panel={panel}
-                  data={state.data}
-                  onAction={(a) => void action(a)}
-                  onRecord={(r) => void openRecord(r)}
-                />
-              )}
-              <footer className="panel-source">
-                {state?.status === 'ready' ? (
-                  <>
-                    Source: {state.data.sourceId} · as of {state.data.asOf}
-                    {state.data.warnings.map((warning, index) => (
-                      <div key={index}>{warning}</div>
-                    ))}
-                  </>
+              <ExpandablePanel title={panel.title}>
+                {!state || state.status === 'loading' ? (
+                  <div className="skeleton" role="status">
+                    Loading source data…
+                  </div>
+                ) : state.status === 'error' ? (
+                  <div role="alert">
+                    <p>Source unavailable: {state.code}</p>
+                    <button onClick={() => void action({ type: 'refresh' })}>Retry source</button>
+                  </div>
                 ) : (
-                  'Source details available when data loads.'
+                  <OpenUIPanel
+                    readOnly={!current}
+                    panel={panel}
+                    data={state.data}
+                    onAction={(a) => void action(a)}
+                    onRecord={(r) => void openRecord(r)}
+                  />
                 )}
-              </footer>
+                <footer className="panel-source">
+                  {state?.status === 'ready' ? (
+                    <>
+                      Source: {state.data.sourceId} · as of {state.data.asOf}
+                      {state.data.warnings.map((warning, index) => (
+                        <div key={index}>{warning}</div>
+                      ))}
+                    </>
+                  ) : (
+                    'Source details available when data loads.'
+                  )}
+                </footer>
+              </ExpandablePanel>
             </article>
           );
         })}
@@ -389,7 +409,9 @@ function App() {
             m.id === assistantId
               ? {
                   ...m,
-                  text: 'I could not complete that response. Your earlier messages are preserved.',
+                  text:
+                    end.text ||
+                    'I could not generate a usable response. Please retry or clarify your request.',
                 }
               : m,
           ),
@@ -499,40 +521,50 @@ function App() {
             aria-label="Chat messages"
             aria-live="polite"
           >
-            {messages.map((m) => (
-              <article key={m.id} className={`message ${m.role}`} data-message-id={m.id}>
-                <p className="message-role">{m.role === 'user' ? 'YOU' : 'SOURCE'}</p>
-                <div className="message-bubble">
-                  {m.text && <p className="message-text">{m.text}</p>}
-                  {m.visual && (
-                    <InlineArtifact
-                      artifact={m.visual}
-                      current={
-                        m.visual.artifactId === artifact?.artifactId &&
-                        m.visual.revision === artifact?.revision
-                      }
-                      updating={updating && m.visual.revision === artifact?.revision}
-                      busy={busy}
-                      action={(value) => void action(m.visual!, value)}
-                      openRecord={(row) => void openRecord(row)}
-                    />
-                  )}
-                  {!!m.evidence && (
-                    <details className="evidence">
-                      <summary>Source evidence</summary>
-                      <p>Immutable source snapshot · provenance details</p>
-                      <pre>
-                        {JSON.stringify(
-                          typeof m.evidence === 'string' ? JSON.parse(m.evidence) : m.evidence,
-                          null,
-                          2,
-                        )}
-                      </pre>
-                    </details>
-                  )}
-                </div>
-              </article>
-            ))}
+            {messages.flatMap((m) => {
+              const groups = m.visual ? responseMessages(m.visual) : [{ id: m.id, panelIds: [] }];
+              return groups.map((group, groupIndex) => (
+                <article
+                  key={`${m.id}-${group.id}`}
+                  className={`message ${m.role}`}
+                  data-message-id={m.id}
+                  data-message-group={group.id}
+                >
+                  <p className="message-role">{m.role === 'user' ? 'YOU' : 'SOURCE'}</p>
+                  <div className="message-bubble">
+                    {groupIndex === 0 && m.text && <p className="message-text">{m.text}</p>}
+                    {m.visual && (
+                      <InlineArtifact
+                        artifact={m.visual}
+                        panelIds={group.panelIds}
+                        showToolbar={groupIndex === 0}
+                        current={
+                          m.visual.artifactId === artifact?.artifactId &&
+                          m.visual.revision === artifact?.revision
+                        }
+                        updating={updating && m.visual.revision === artifact?.revision}
+                        busy={busy}
+                        action={(value) => void action(m.visual!, value)}
+                        openRecord={(row) => void openRecord(row)}
+                      />
+                    )}
+                    {groupIndex === 0 && !!m.evidence && (
+                      <details className="evidence">
+                        <summary>Source evidence</summary>
+                        <p>Immutable source snapshot · provenance details</p>
+                        <pre>
+                          {JSON.stringify(
+                            typeof m.evidence === 'string' ? JSON.parse(m.evidence) : m.evidence,
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                </article>
+              ));
+            })}
             {busy && (
               <p className="working" role="status">
                 Working with the source data…
@@ -554,6 +586,7 @@ function App() {
               }}
               placeholder="Ask a question about the source records…"
               rows={2}
+              maxLength={16000}
               disabled={busy || hydrating}
             />
             <div className="composer-footer">

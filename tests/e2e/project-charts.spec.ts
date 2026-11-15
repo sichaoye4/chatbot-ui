@@ -72,3 +72,81 @@ test('burnup mode and unavailable real project requests remain explicit', async 
   await expect(page.locator('.message.assistant').last()).toContainText('no project schedules');
   await expect(page.locator('.message.assistant').last().locator('.project-chart')).toHaveCount(0);
 });
+
+test('standalone messages persist and every component expands in an accessible modal', async ({
+  page,
+  runtime,
+}) => {
+  await page.goto(runtime.url);
+  await page
+    .getByLabel('Ask about your data')
+    .fill('Show a project management demo in separate messages');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect(page.locator('.message.assistant')).toHaveCount(4);
+  await expect(page.locator('.message.assistant .panel')).toHaveCount(4);
+  await expect(page.locator('.message.assistant .toolbar')).toHaveCount(1);
+  for (let i = 0; i < 4; i++) {
+    const trigger = page.getByRole('button', { name: /^Expand / }).nth(i);
+    await trigger.click();
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('.project-chart')).toHaveCount(1);
+    await expect(modal.locator('.panel-source')).toContainText('synthetic-project-demo');
+    if (i === 0) {
+      const a11y = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze();
+      expect(a11y.violations).toEqual([]);
+    }
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+  }
+  await page.reload();
+  await expect(page.locator('.message.assistant')).toHaveCount(4);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page
+    .getByRole('button', { name: /^Expand / })
+    .first()
+    .click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(
+    await page.getByRole('dialog').evaluate((el) => el.getBoundingClientRect().width),
+  ).toBeLessThanOrEqual(375);
+  await page.getByRole('button', { name: 'Close expanded view' }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+});
+
+test('validated live model plans render their own dates, expand, refresh and restore', async ({
+  page,
+  runtime,
+}, info) => {
+  const { readFileSync } = await import('node:fs');
+  for (const name of ['banking-12', 'banking-18']) {
+    const plan = JSON.parse(readFileSync(`tests/fixtures/llm-${name}-plan.json`, 'utf8'));
+    const conversationId = `model-${name}`;
+    const response = await page.request.post(runtime.url + '/api/testing/plan', {
+      headers: { 'x-test-token': runtime.token },
+      data: { conversationId, plan },
+    });
+    expect(response.ok()).toBe(true);
+    await page.goto(runtime.url);
+    await page.evaluate((id) => localStorage.setItem('csv.conversation', id), conversationId);
+    await page.reload();
+    await expect(page.locator('.panel')).toHaveCount(plan.panels.length);
+    await expect(page.locator('.panel-source').first()).toContainText('user-provided-content');
+    await page
+      .getByRole('button', { name: /^Expand / })
+      .first()
+      .click();
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('svg')).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`${name}-llm-expanded.png`) });
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.locator('.notice')).toContainText('View updated.');
+    await page.reload();
+    await expect(page.locator('.panel')).toHaveCount(plan.panels.length);
+  }
+});

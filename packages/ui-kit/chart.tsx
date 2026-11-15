@@ -1,15 +1,19 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Dataset } from '../contracts/index.ts';
 
-export function chartValue(value: unknown, unit?: string) {
+export function chartValue(value: unknown, unit?: string, locale?: string) {
   return value === null ||
     value === undefined ||
     (typeof value === 'number' && !Number.isFinite(value))
     ? 'Missing'
     : unit === 'ratio'
-      ? `${(Number(value) * 100).toFixed(2)}%`
+      ? new Intl.NumberFormat(locale ?? 'en-US', {
+          style: 'percent',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(Number(value))
       : typeof value === 'number'
-        ? value.toLocaleString('en-US')
+        ? value.toLocaleString(locale ?? 'en-US')
         : String(value);
 }
 
@@ -20,12 +24,18 @@ export function AnalyticsChart({
   y,
   title,
   kind,
+  locale,
+  valueLabel,
+  temporal = false,
 }: {
-  data: Dataset;
+  data: Pick<Dataset, 'rows' | 'fields'>;
   x: string;
   y: string;
   title: string;
   kind: 'trend' | 'comparison';
+  locale?: string;
+  valueLabel?: string;
+  temporal?: boolean;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -54,12 +64,17 @@ export function AnalyticsChart({
     height = 260;
   const py = (value: number) => bottom - ((value - minimum) / span) * (bottom - top);
   const step = (right - left) / Math.max(1, data.rows.length);
+  const times = temporal ? data.rows.map((row) => Date.parse(String(row[x]))) : [];
+  const timeStart = times[0];
+  const timeSpan = times.at(-1)! - timeStart;
   const px = (index: number) =>
     kind === 'comparison'
       ? left + step * (index + 0.5)
       : data.rows.length === 1
         ? (left + right) / 2
-        : left + (index * (right - left)) / (data.rows.length - 1);
+        : temporal && timeSpan > 0
+          ? left + ((times[index] - timeStart) * (right - left)) / timeSpan
+          : left + (index * (right - left)) / (data.rows.length - 1);
   const ticks = Array.from({ length: 5 }, (_, i) => minimum + (span * i) / 4);
   const labelCount =
     kind === 'comparison' && data.rows.length <= 4
@@ -89,8 +104,11 @@ export function AnalyticsChart({
   });
   const tickLabel = (value: number) =>
     unit === 'ratio'
-      ? `${+(value * 100).toFixed(1)}%`
-      : new Intl.NumberFormat('en-US', {
+      ? new Intl.NumberFormat(locale ?? 'en-US', {
+          style: 'percent',
+          maximumFractionDigits: 1,
+        }).format(value)
+      : new Intl.NumberFormat(locale ?? 'en-US', {
           notation: Math.abs(value) >= 10000 ? 'compact' : 'standard',
           maximumFractionDigits: 2,
         }).format(value);
@@ -188,7 +206,7 @@ export function AnalyticsChart({
           const value = values[index];
           const pointY = py(value ?? 0);
           const barWidth = Math.min(56, step * 0.55);
-          const label = `${String(row[x])}: ${chartValue(row[y], unit)}`;
+          const label = `${String(row[x])}: ${chartValue(row[y], unit, locale)}`;
           return (
             <g
               key={index}
@@ -267,8 +285,8 @@ export function AnalyticsChart({
           style={{ left: `clamp(8px, ${(px(active) / width) * 100}% - 90px, calc(100% - 188px))` }}
         >
           <span className="chart-tooltip-label">{String(selected[x])}</span>
-          <strong>{chartValue(selected[y], unit)}</strong>
-          <span className="chart-tooltip-field">{y}</span>
+          <strong>{chartValue(selected[y], unit, locale)}</strong>
+          <span className="chart-tooltip-field">{valueLabel ?? y}</span>
         </div>
       )}
       <p className="chart-hint">Hover or tap a point · Arrow keys to explore</p>
