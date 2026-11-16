@@ -1,0 +1,672 @@
+{
+  "partialTurnEvents": [
+    {
+      "protocolVersion": 2,
+      "eventId": "eventc683dbf7fb544e2091be81efe8c56787",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 0,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "request.started"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event533f08b529b2438d8e211790d91f616c",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 1,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+      "revision": 1,
+      "generation": 0,
+      "type": "plan.accepted",
+      "bindingIds": [
+        "data",
+        "broken"
+      ]
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event83916454dce945bfb46470e276df8f3e",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 2,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+      "revision": 1,
+      "generation": 0,
+      "type": "binding.pending",
+      "bindingId": "data"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event3fe691e4b44a4bce8e2d9f20edb83a11",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 3,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+      "revision": 1,
+      "generation": 0,
+      "type": "binding.ready",
+      "bindingId": "data",
+      "rowCount": 1,
+      "truncated": false
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event4ebb12d5259b4d43902907461618be2c",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 4,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+      "revision": 1,
+      "generation": 0,
+      "type": "binding.pending",
+      "bindingId": "broken"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event4613cc634bd141ecbfdd59c4a7872660",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 5,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+      "revision": 1,
+      "generation": 0,
+      "type": "binding.failed",
+      "bindingId": "broken",
+      "diagnostic": {
+        "code": "SOURCE_FAILURE",
+        "message": "This data source failed to load.",
+        "retryable": true,
+        "targetId": "broken"
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event8865a7b5db7d42eb889959a8359f0e6e",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 6,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "response.committed",
+      "response": {
+        "protocolVersion": 2,
+        "messageId": "msg_partial",
+        "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+        "revision": 1,
+        "generation": 0,
+        "plan": {
+          "schemaVersion": 2,
+          "capabilitySnapshotId": "catalog-35-a913b939",
+          "bindings": [
+            {
+              "id": "data",
+              "tool": {
+                "id": "commerce.revenue",
+                "version": 1
+              },
+              "args": {},
+              "fixedArgs": {
+                "period": [
+                  "2024-01-01",
+                  "2024-12-31"
+                ],
+                "region": null
+              }
+            },
+            {
+              "id": "broken",
+              "tool": {
+                "id": "operations.quality",
+                "version": 1
+              },
+              "args": {},
+              "fixedArgs": {
+                "area": "north",
+                "region": null
+              }
+            }
+          ],
+          "facts": [
+            {
+              "id": "rev",
+              "field": {
+                "bindingId": "data",
+                "fieldId": "net"
+              },
+              "row": 0,
+              "format": "integer"
+            },
+            {
+              "id": "scr",
+              "field": {
+                "bindingId": "broken",
+                "fieldId": "score"
+              },
+              "row": 0,
+              "format": "integer"
+            }
+          ],
+          "blocks": [
+            {
+              "id": "answer",
+              "kind": "visual",
+              "elements": [
+                {
+                  "id": "values",
+                  "component": {
+                    "id": "ui.table",
+                    "version": 1
+                  },
+                  "title": "Recorded results",
+                  "roles": {
+                    "columns": [
+                      {
+                        "bindingId": "data",
+                        "fieldId": "date"
+                      },
+                      {
+                        "bindingId": "data",
+                        "fieldId": "net"
+                      }
+                    ]
+                  },
+                  "props": {}
+                }
+              ],
+              "controls": [],
+              "layoutIntent": "auto"
+            },
+            {
+              "id": "sum",
+              "kind": "text",
+              "parts": [
+                {
+                  "factId": "rev"
+                },
+                {
+                  "text": " / "
+                },
+                {
+                  "factId": "scr"
+                }
+              ]
+            }
+          ]
+        },
+        "bindingDescriptors": [
+          {
+            "bindingId": "data",
+            "source": {
+              "id": "commerce.revenue",
+              "version": 1
+            },
+            "fields": [
+              {
+                "id": "date",
+                "label": "date",
+                "type": "date",
+                "role": "time",
+                "nullable": false,
+                "description": "Fixture field date",
+                "temporal": {
+                  "timezone": "UTC",
+                  "calendar": "gregorian",
+                  "grain": "day"
+                }
+              },
+              {
+                "id": "net",
+                "label": "net",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "currency:USD",
+                "description": "Fixture field net",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              }
+            ],
+            "grain": "one row per day"
+          },
+          {
+            "bindingId": "broken",
+            "source": {
+              "id": "operations.quality",
+              "version": 1
+            },
+            "fields": [
+              {
+                "id": "date",
+                "label": "date",
+                "type": "date",
+                "role": "time",
+                "nullable": false,
+                "description": "Fixture field date",
+                "temporal": {
+                  "timezone": "UTC",
+                  "calendar": "gregorian",
+                  "grain": "day"
+                }
+              },
+              {
+                "id": "score",
+                "label": "score",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "score",
+                "description": "Fixture field score",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              },
+              {
+                "id": "compliance",
+                "label": "compliance",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "ratio",
+                "description": "Fixture field compliance",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              }
+            ],
+            "grain": "one row per day"
+          }
+        ],
+        "datasets": {
+          "data": {
+            "status": "ready",
+            "result": {
+              "rows": [
+                {
+                  "date": "2024-01-01",
+                  "net": 170
+                }
+              ],
+              "provenance": {
+                "sourceId": "synthetic-fixture",
+                "sourceVersion": "fixture-v1",
+                "queryId": "fixture-query",
+                "executedAt": "2026-11-14T00:00:00Z",
+                "grain": "one row per day",
+                "truncated": false,
+                "nextCursor": null,
+                "warnings": []
+              }
+            }
+          },
+          "broken": {
+            "status": "failed",
+            "diagnostic": {
+              "code": "SOURCE_FAILURE",
+              "message": "This data source is unavailable.",
+              "retryable": true,
+              "targetId": "broken"
+            }
+          }
+        },
+        "facts": {
+          "rev": {
+            "value": "170",
+            "field": {
+              "bindingId": "data",
+              "fieldId": "net"
+            },
+            "row": 0,
+            "format": "integer"
+          }
+        },
+        "operations": [
+          {
+            "id": "ui.retryBinding",
+            "version": 1
+          }
+        ],
+        "status": "partial",
+        "diagnostics": []
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "eventf3d849e0a29b4d74a30504f893436982",
+      "requestId": "request5a1611c3ea3642398764de29de7f204b",
+      "sequence": 7,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "request.completed"
+    }
+  ],
+  "retryEvents": [
+    {
+      "protocolVersion": 2,
+      "eventId": "event1ce26e05c91a44e99f2d4db6bd0f7af1",
+      "requestId": "request20abbdf300574e328da5539e0a344450",
+      "sequence": 0,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "request.started"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event9fc3cfa1cbc64a58adc50d927cbca8a2",
+      "requestId": "request20abbdf300574e328da5539e0a344450",
+      "sequence": 1,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "response.committed",
+      "response": {
+        "protocolVersion": 2,
+        "messageId": "msg_partial",
+        "responseId": "responsedb9b96fa232f4ce2b022240283f69f4a",
+        "revision": 1,
+        "generation": 1,
+        "plan": {
+          "schemaVersion": 2,
+          "capabilitySnapshotId": "catalog-35-a913b939",
+          "bindings": [
+            {
+              "id": "data",
+              "tool": {
+                "id": "commerce.revenue",
+                "version": 1
+              },
+              "args": {},
+              "fixedArgs": {
+                "period": [
+                  "2024-01-01",
+                  "2024-12-31"
+                ],
+                "region": null
+              }
+            },
+            {
+              "id": "broken",
+              "tool": {
+                "id": "operations.quality",
+                "version": 1
+              },
+              "args": {},
+              "fixedArgs": {
+                "area": "north",
+                "region": null
+              }
+            }
+          ],
+          "facts": [
+            {
+              "id": "rev",
+              "field": {
+                "bindingId": "data",
+                "fieldId": "net"
+              },
+              "row": 0,
+              "format": "integer"
+            },
+            {
+              "id": "scr",
+              "field": {
+                "bindingId": "broken",
+                "fieldId": "score"
+              },
+              "row": 0,
+              "format": "integer"
+            }
+          ],
+          "blocks": [
+            {
+              "id": "answer",
+              "kind": "visual",
+              "elements": [
+                {
+                  "id": "values",
+                  "component": {
+                    "id": "ui.table",
+                    "version": 1
+                  },
+                  "title": "Recorded results",
+                  "roles": {
+                    "columns": [
+                      {
+                        "bindingId": "data",
+                        "fieldId": "date"
+                      },
+                      {
+                        "bindingId": "data",
+                        "fieldId": "net"
+                      }
+                    ]
+                  },
+                  "props": {}
+                }
+              ],
+              "controls": [],
+              "layoutIntent": "auto"
+            },
+            {
+              "id": "sum",
+              "kind": "text",
+              "parts": [
+                {
+                  "factId": "rev"
+                },
+                {
+                  "text": " / "
+                },
+                {
+                  "factId": "scr"
+                }
+              ]
+            }
+          ]
+        },
+        "bindingDescriptors": [
+          {
+            "bindingId": "data",
+            "source": {
+              "id": "commerce.revenue",
+              "version": 1
+            },
+            "fields": [
+              {
+                "id": "date",
+                "label": "date",
+                "type": "date",
+                "role": "time",
+                "nullable": false,
+                "description": "Fixture field date",
+                "temporal": {
+                  "timezone": "UTC",
+                  "calendar": "gregorian",
+                  "grain": "day"
+                }
+              },
+              {
+                "id": "net",
+                "label": "net",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "currency:USD",
+                "description": "Fixture field net",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              }
+            ],
+            "grain": "one row per day"
+          },
+          {
+            "bindingId": "broken",
+            "source": {
+              "id": "operations.quality",
+              "version": 1
+            },
+            "fields": [
+              {
+                "id": "date",
+                "label": "date",
+                "type": "date",
+                "role": "time",
+                "nullable": false,
+                "description": "Fixture field date",
+                "temporal": {
+                  "timezone": "UTC",
+                  "calendar": "gregorian",
+                  "grain": "day"
+                }
+              },
+              {
+                "id": "score",
+                "label": "score",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "score",
+                "description": "Fixture field score",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              },
+              {
+                "id": "compliance",
+                "label": "compliance",
+                "type": "number",
+                "role": "measure",
+                "nullable": false,
+                "unit": "ratio",
+                "description": "Fixture field compliance",
+                "measure": {
+                  "aggregation": "tool-owned aggregate",
+                  "precision": 2,
+                  "additive": false
+                }
+              }
+            ],
+            "grain": "one row per day"
+          }
+        ],
+        "datasets": {
+          "data": {
+            "status": "ready",
+            "result": {
+              "rows": [
+                {
+                  "date": "2024-01-01",
+                  "net": 170
+                }
+              ],
+              "provenance": {
+                "sourceId": "synthetic-fixture",
+                "sourceVersion": "fixture-v1",
+                "queryId": "fixture-query",
+                "executedAt": "2026-11-14T00:00:00Z",
+                "grain": "one row per day",
+                "truncated": false,
+                "nextCursor": null,
+                "warnings": []
+              }
+            }
+          },
+          "broken": {
+            "status": "ready",
+            "result": {
+              "rows": [
+                {
+                  "date": "2024-01-01",
+                  "score": 82,
+                  "compliance": 0.75
+                }
+              ],
+              "provenance": {
+                "sourceId": "synthetic-fixture",
+                "sourceVersion": "fixture-v1",
+                "queryId": "fixture-query",
+                "executedAt": "2026-11-14T00:00:00Z",
+                "grain": "one row per day",
+                "truncated": false,
+                "nextCursor": null,
+                "warnings": []
+              }
+            }
+          }
+        },
+        "facts": {
+          "rev": {
+            "value": "170",
+            "field": {
+              "bindingId": "data",
+              "fieldId": "net"
+            },
+            "row": 0,
+            "format": "integer"
+          },
+          "scr": {
+            "value": "82",
+            "field": {
+              "bindingId": "broken",
+              "fieldId": "score"
+            },
+            "row": 0,
+            "format": "integer"
+          }
+        },
+        "operations": [],
+        "status": "complete",
+        "diagnostics": []
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event62dd2469822348c790b598cfd4086a0c",
+      "requestId": "request20abbdf300574e328da5539e0a344450",
+      "sequence": 2,
+      "conversationId": "conv_partial",
+      "messageId": "msg_partial",
+      "type": "request.completed"
+    }
+  ],
+  "failedEvents": [
+    {
+      "protocolVersion": 2,
+      "eventId": "eventa59e131c315849019cbfd51117fc4909",
+      "requestId": "request7d598df6986f42059058a496ee9b1a95",
+      "sequence": 0,
+      "conversationId": "conv_partial",
+      "messageId": "msg_failed",
+      "type": "request.started"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event63bcf9410e52453ab60fbeae2f5bee3e",
+      "requestId": "request7d598df6986f42059058a496ee9b1a95",
+      "sequence": 1,
+      "conversationId": "conv_partial",
+      "messageId": "msg_failed",
+      "type": "request.failed",
+      "diagnostic": {
+        "code": "SOURCE_FAILURE",
+        "message": "The request could not be completed. Please try again.",
+        "retryable": true
+      }
+    }
+  ]
+}

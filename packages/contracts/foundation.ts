@@ -92,6 +92,7 @@ export const Control = z.strictObject({
     .max(20),
   initialValue: InputValue,
   dependsOn: z.array(LocalId).max(20),
+  dependentPolicy: z.enum(['reject', 'reset']).optional(),
 });
 export type Control = z.infer<typeof Control>;
 export const Fact = z.strictObject({

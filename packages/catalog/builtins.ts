@@ -3,7 +3,9 @@ import { VISUALIZATION_ANNOTATION, visualizationV2Model } from '../contracts/vis
 import { pieModel } from '../contracts/pie-data.ts';
 import { projectV2Model } from '../contracts/project-v2.ts';
 import { z } from 'zod';
+import { InputValue, LocalId } from '../contracts/foundation.ts';
 import type {
+  ActionRegistration,
   ComponentRegistration,
   ControlRegistration,
   FoundationCatalog,
@@ -282,8 +284,77 @@ export const controlDefinitions: ControlRegistration[] = [
       .refine(([start, end]) => start <= end, 'Reversed date range'),
   },
 ];
+export const actionDefinitions: ActionRegistration[] = [
+  {
+    ref: { id: 'ui.setControl', version: 1 },
+    description: 'Update an answer control or fork a scope-changing control into a new revision',
+    payload: z.strictObject({
+      controlId: LocalId,
+      value: InputValue,
+      newMessageId: LocalId.optional(),
+      userMessageId: LocalId.optional(),
+    }),
+    sideEffects: 'revision',
+  },
+  {
+    ref: { id: 'ui.retryBinding', version: 1 },
+    description: 'Retry a failed data binding without disturbing successful siblings',
+    payload: z.strictObject({ bindingId: LocalId }),
+    sideEffects: 'read-only-query',
+  },
+  {
+    ref: { id: 'ui.sort', version: 1 },
+    description: 'Sort a binding result by a permitted field and invalidate incompatible cursors',
+    payload: z.strictObject({
+      bindingId: LocalId,
+      fieldId: LocalId,
+      direction: z.enum(['asc', 'desc']),
+    }),
+    sideEffects: 'read-only-query',
+    eligible: (plan, principal, catalog) =>
+      plan.bindings.some((binding) => {
+        try {
+          return !!catalog.tool(binding.tool, principal).sorting;
+        } catch {
+          return false;
+        }
+      }),
+  },
+  {
+    ref: { id: 'ui.paginate', version: 1 },
+    description: 'Request another authorized page cursor for a paginated binding',
+    payload: z.strictObject({
+      bindingId: LocalId,
+      cursor: z.string().max(2048).nullable(),
+    }),
+    sideEffects: 'read-only-query',
+    eligible: (plan, principal, catalog) =>
+      plan.bindings.some((binding) => {
+        try {
+          return !!catalog.tool(binding.tool, principal).pagination;
+        } catch {
+          return false;
+        }
+      }),
+  },
+  {
+    ref: { id: 'ui.refresh', version: 1 },
+    description: 'Refresh one or all refreshable bindings within current authorized scope',
+    payload: z.strictObject({ bindingId: LocalId.optional() }),
+    sideEffects: 'read-only-query',
+    eligible: (plan, principal, catalog) =>
+      plan.bindings.some((binding) => {
+        try {
+          return catalog.tool(binding.tool, principal).refreshable === true;
+        } catch {
+          return false;
+        }
+      }),
+  },
+];
 export function registerBuiltins(catalog: FoundationCatalog) {
   for (const component of componentDefinitions) catalog.registerComponent(component);
   for (const control of controlDefinitions) catalog.registerControl(control);
+  for (const action of actionDefinitions) catalog.registerAction(action);
   return catalog;
 }

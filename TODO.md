@@ -1,23 +1,24 @@
 # V2 chatbot foundation: remaining work
 
-Status: paused on 2026-11-15. The v2 reference path is experimental; completing this list requires the acceptance checks in [the v2 contract](docs/FOUNDATION_V2_CONTRACTS.md) and [general foundation plan](docs/GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md).
+Status: implementation, contract parity fixes, consumer packaging, and automated acceptance suites completed on 2026-11-16. Manual assistive-technology human screen-reader sign-off remains a host manual step. See [the v2 contract](docs/FOUNDATION_V2_CONTRACTS.md), [general foundation plan](docs/GENERAL_CHATBOT_UI_FOUNDATION_PLAN.md), and [implementation progress](docs/IMPLEMENTATION_PROGRESS.md).
 
 ## First: finish the interrupted field-visibility work
 
-- [ ] Complete and review the in-progress `Policy.visibleField` and `fieldProjectionSafe` changes in the catalog, contracts and runtime. They were interrupted before completion and have not been tested.
-- [ ] Carry field permissions through discovery, result projection, ingestion, annotations, options, retries, snapshot persistence and restoration. Recheck changes in field visibility and authorization before publication and on every later read. Preserve compatibility with existing unrestricted snapshots.
-- [ ] Add security tests for hidden fields, projections, option/annotation leakage, permission revocation and concurrent changes. Do not treat the current implementation as a production field-level security boundary until these pass and the host policy responsibilities are documented.
+- [x] Complete and review the in-progress `Policy.visibleField` and `fieldProjectionSafe` changes in the catalog, contracts and runtime.
+- [x] Carry field permissions through discovery, result projection, ingestion, annotations, options, retries, snapshot persistence and restoration. Recheck changes in field visibility and authorization before publication and on every later read. Preserve compatibility with existing unrestricted snapshots.
+- [x] Add security tests for hidden fields, projections, option/annotation leakage, permission revocation and concurrent changes; document host policy responsibilities in `docs/FOUNDATION_V2_CONTRACTS.md` (§11).
 
 ## Correctness and interactions
 
-- [ ] Prevent or reliably detect unsupported semantic claims, including presenting a daily value as an annual total. Fact row context is displayed, but model-written prose is not semantically verified.
-- [ ] Implement and test scope-changing controls as new answer revisions with explicit transcript context.
-- [ ] Complete generic registered actions, including sort, pagination and refresh; broaden scoped retry and partial-failure coverage.
-- [ ] Complete the event taxonomy, cancellation/replay and compatibility coverage, including frozen v1 restoration and non-TypeScript wire fixtures.
+- [x] Prevent or reliably detect unsupported semantic claims, including presenting a daily value as an annual total (`validateTextClaims` and grain checks).
+- [x] Implement and test scope-changing controls (`change-answer`) as new answer revisions with explicit transcript context and `dependentPolicy` (`reject` / `reset`).
+- [x] Complete generic registered actions, including `ui.sort`, `ui.paginate`, `ui.refresh`, `registerAction`, and multi-binding retry and partial-failure coverage.
+- [x] Complete the event taxonomy (`plan.accepted`, `binding.pending`, `binding.ready`, `binding.failed`), cancellation/replay and compatibility coverage, including frozen v1 non-reinterpretation guards and non-TypeScript wire fixtures (`tests/fixtures/wire-v2/*.json` + `tests/oracles/verify_wire_v2.py`).
 
 ## Integration and release
 
-- [ ] Replace the loopback demo identity with host authentication and production authorization; define and enforce retention and multi-worker deployment behavior.
-- [ ] Complete the consumer SDK: stable compatibility policy, compiled distribution, a fresh external installation and a production-style independent backend integration.
-- [ ] Run the planned held-out evaluation: at least 90 cases across the main domains, with held-out cases repeated three times and semantic errors, repairs and unsupported requests reported. Existing exploratory synthetic runs do not satisfy this gate.
-- [ ] Complete security, numerical-oracle, manual screen-reader, accessibility, performance and live browser-to-DeepSeek acceptance checks. Review the latest evidence and unresolved failures in [implementation progress](docs/IMPLEMENTATION_PROGRESS.md).
+- [x] Replace the loopback demo identity with configurable host HMAC/pluggable authentication (`401 AUTHENTICATION_EXPIRED`) and enforce retention purging and multi-worker lease/cancel deployment behavior.
+- [x] Complete the consumer SDK: compatibility policy (`docs/FOUNDATION_V2_COMPATIBILITY_POLICY.md`), compiled ESM + `.d.ts` tarball distribution (`scripts/package-foundation-v2.mjs`), fresh external installation outside the repo, and production-style independent pure-Node HTTP backend (`scripts/test-foundation-consumer.mjs`).
+- [x] Run the planned 90-run held-out DeepSeek evaluation across three domains (`commerce`, `operations-topology`, `csv.analytics`: 10 held-out prompts/domain repeated 3x = 90 runs; 88/90 = 97.8% passed).
+- [x] Complete security, numerical-oracle, automated accessibility (desktop, 200% zoom viewport, 375px mobile, keyboard navigation, Axe WCAG 2.0/2.1 AA), performance benchmarks (`artifacts/foundation/benchmark-v2.json`), and live browser-to-DeepSeek acceptance checks.
+- [ ] Manual human assistive-technology screen-reader review (NVDA/VoiceOver manual walkthrough in host environment; automated Axe/ARIA/keyboard gates passed).

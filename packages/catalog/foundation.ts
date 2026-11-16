@@ -83,10 +83,46 @@ export type ToolRegistration = {
   fieldProjectionSafe?: boolean;
   grain: string;
   interactive: Record<string, ArgumentCapability>;
+  refreshable?: boolean;
+  sorting?: {
+    fieldArg: string;
+    directionArg: string;
+    fields?: string[];
+    localSort?: boolean;
+  };
+  pagination?: {
+    cursorArg: string;
+  };
   /** The connector, not the planner, defines and supplies these result annotations. */
   resultAnnotations?: Record<string, z.ZodType>;
   resultViews?: CapabilityRef[];
   execute: (args: Arguments, context: unknown, signal: AbortSignal) => Promise<DataResult>;
+};
+export type ActionRegistration = {
+  ref: CapabilityRef;
+  description: string;
+  payload: z.ZodType<Record<string, unknown>>;
+  sideEffects: 'read-only-query' | 'stateful' | 'revision';
+  eligible?: (plan: ResponsePlan, principal: Principal, catalog: FoundationCatalog) => boolean;
+  execute?: (input: {
+    payload: Record<string, unknown>;
+    plan: ResponsePlan;
+    datasets: Record<string, { status: string; result?: DataResult }>;
+    principal: Principal;
+    signal: AbortSignal;
+    catalog: FoundationCatalog;
+  }) => Promise<{
+    plan?: ResponsePlan;
+    datasets?: Record<string, DataResult>;
+    diagnostics?: {
+      code: FoundationError['diagnostic']['code'];
+      message: string;
+      retryable: boolean;
+      targetId?: string;
+    }[];
+    targetBindings?: string[];
+    revalidateSelections?: boolean;
+  }>;
 };
 export type DomainRegistration = {
   ref: CapabilityRef;
@@ -119,6 +155,7 @@ export class FoundationCatalog {
   private components = new Map<string, ComponentRegistration>();
   private controls = new Map<string, ControlRegistration>();
   private optionResolvers = new Map<string, OptionResolverRegistration>();
+  private actions = new Map<string, ActionRegistration>();
   private domains: DomainRegistration[] = [];
   private revision = 0;
   constructor(
@@ -162,6 +199,14 @@ export class FoundationCatalog {
       ...control,
       ref: { ...control.ref },
       guidance: structuredClone(control.guidance),
+    });
+    return this;
+  }
+  registerAction(action: ActionRegistration) {
+    z.toJSONSchema(action.payload);
+    this.add(this.actions, {
+      ...action,
+      ref: { ...action.ref },
     });
     return this;
   }
@@ -252,11 +297,35 @@ export class FoundationCatalog {
         this.policy.visibleField(tool.ref, field.id, principal) === true,
     );
   }
+  /** Compute an authorization token binding the host scopeKey to the caller's permitted field projection. */
+  scopeIdentity(scope: string, ref: CapabilityRef, principal: Principal, allowRestricted = false) {
+    const tool = allowRestricted
+      ? this.available(this.tools, ref, principal)
+      : this.tool(ref, principal);
+    const permitted = this.permittedFields(tool, principal);
+    if (!permitted.length || (permitted.length < tool.fields.length && !tool.fieldProjectionSafe)) {
+      if (!allowRestricted) fail('CAPABILITY_UNAVAILABLE', ref.id, 'Capability is unavailable');
+      return JSON.stringify([scope, permitted.map((field) => field.id), 'restricted']);
+    }
+    return permitted.length < tool.fields.length
+      ? JSON.stringify([scope, permitted.map((field) => field.id)])
+      : scope;
+  }
+  /** Look up a registered tool for policy rechecks even when field visibility was narrowed after commit. */
+  registeredTool(ref: CapabilityRef, principal: Principal) {
+    return this.available(this.tools, ref, principal);
+  }
   fields(ref: CapabilityRef, principal: Principal) {
     return this.permittedFields(this.tool(ref, principal), principal);
   }
   control(ref: CapabilityRef, principal: Principal) {
     return this.available(this.controls, ref, principal);
+  }
+  action(ref: CapabilityRef, principal: Principal) {
+    return this.available(this.actions, ref, principal);
+  }
+  registeredActions(principal: Principal) {
+    return [...this.actions.values()].filter((entry) => this.policy.visible(entry.ref, principal));
   }
   optionResolver(ref: CapabilityRef, principal: Principal) {
     return this.available(this.optionResolvers, ref, principal);
@@ -274,6 +343,7 @@ export class FoundationCatalog {
       (entry) => !clientComponents || clientComponents.some((ref) => key(ref) === key(entry.ref)),
     );
     const controls = permitted(this.controls);
+    const actions = permitted(this.actions);
     // This is an invalidation token, never authorization evidence. Query policy is rechecked.
     const projection = tools
       .filter((tool) => this.permittedFields(tool, principal).length !== tool.fields.length)
@@ -285,7 +355,12 @@ export class FoundationCatalog {
       )
       .sort()
       .join('|');
-    const snapshotId = `catalog-${this.revision}-${[...tools, ...components, ...controls]
+    const snapshotId = `catalog-${this.revision}-${[
+      ...tools,
+      ...components,
+      ...controls,
+      ...actions,
+    ]
       .map((v) => key(v.ref))
       .sort()
       .join('|')}${projection ? `-${projection}` : ''}`;
@@ -364,6 +439,12 @@ export class FoundationCatalog {
         guidance,
         value: z.toJSONSchema(value),
       })),
+      actions: actions.map(({ ref, description, payload, sideEffects }) => ({
+        ref,
+        description,
+        payload: z.toJSONSchema(payload),
+        sideEffects,
+      })),
     });
   }
   validate(
@@ -399,19 +480,21 @@ export class FoundationCatalog {
       fail('BUDGET_EXCEEDED', '', 'Plan exceeds execution/presentation budget');
     const bindings = new Map(plan.bindings.map((b) => [b.id, b]));
     for (const binding of plan.bindings) {
-      // Safe default: an argument is fixed unless an explicit within-answer control owns it.
-      // Models may place equivalent fixed constraints in either object; never interpret that
-      // representational variation as permission to expose/edit a constraint later.
+      const tool = this.tool(binding.tool, principal);
+      // Safe default: an argument is fixed unless owned by a within-answer control or declared action (sort/pagination).
       for (const [argument, value] of Object.entries(binding.args)) {
         const control = controls.find((c) =>
           c.targets.some((t) => t.bindingId === binding.id && t.argument === argument),
         );
-        if (!control || control.scopeMode === 'change-answer') {
+        const actionOwned =
+          argument === tool.sorting?.fieldArg ||
+          argument === tool.sorting?.directionArg ||
+          argument === tool.pagination?.cursorArg;
+        if (!actionOwned && (!control || control.scopeMode === 'change-answer')) {
           binding.fixedArgs[argument] = value;
           delete binding.args[argument];
         }
       }
-      const tool = this.tool(binding.tool, principal);
       if (!tool.args.safeParse({ ...binding.args, ...binding.fixedArgs }).success)
         fail('SCHEMA_INVALID', `bindings.${binding.id}`, 'Invalid tool arguments');
     }
@@ -519,7 +602,151 @@ export class FoundationCatalog {
       if (issues.length) fail('SEMANTIC_INVALID', element.id, issues.join('; '));
     }
     for (const control of controls) this.validateControl(control, plan, principal);
+    this.validateTextClaims(plan, principal);
     return plan;
+  }
+  private validateTextClaims(
+    plan: ResponsePlan,
+    principal: Principal,
+    datasets?: Record<string, DataResult>,
+  ) {
+    const bindings = new Map(plan.bindings.map((binding) => [binding.id, binding]));
+    const facts = new Map(plan.facts.map((fact) => [fact.id, fact]));
+    const argLiterals = new Set<string>();
+    const collectArgs = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) argLiterals.add(String(value));
+      else if (typeof value === 'string') {
+        argLiterals.add(value);
+        for (const match of value.match(/\b\d+\b/g) ?? []) argLiterals.add(match);
+      } else if (Array.isArray(value)) value.forEach(collectArgs);
+      else if (value && typeof value === 'object') Object.values(value).forEach(collectArgs);
+    };
+    for (const binding of plan.bindings) {
+      collectArgs(binding.args);
+      collectArgs(binding.fixedArgs);
+    }
+
+    const coarserClaim =
+      /\b(?:annual(?:ly)?|yearly|full[- ]year|whole[- ]year|entire\s+year|year[- ]total|total\s+for\s+(?:the\s+)?year|(?:19|20)\d{2}\s+total|total\s+for\s+(?:19|20)\d{2}|all[- ]year|whole[- ]period|full[- ]period|entire\s+period|across\s+(?:all|the\s+entire)\s+(?:year|days|months|periods?))\b/i;
+    const additiveClaim = /\b(?:combined\s+total|sum\s+of|cumulative\s+total)\b/i;
+    const totalClaim = /\b(?:total|overall|for\s+the\s+period|for\s+the\s+year|full\s+period)\b/i;
+    const finerGrain =
+      /\b(?:per\s+(?:day|hour|minute|second|week|month|edge|order|item|row|record|transaction|customer|node)|daily|hourly|weekly|monthly)\b/i;
+    const annualGrain = /\b(?:annual|yearly|per\s+year|full[- ]year)\b/i;
+    const rowQualifier =
+      /\b(?:day|daily|per\s+day|hourly|weekly|monthly|row|record|edge|single|first|latest|earliest)\b/i;
+
+    for (const block of plan.blocks) {
+      if (block.kind !== 'text') continue;
+      const literalParts = block.parts.flatMap((part) => ('text' in part ? [part.text] : []));
+      const literalText = literalParts.join(' ');
+      if (!datasets) {
+        const cleanedDates = literalText
+          .replace(/\b\d{4}-\d{2}-\d{2}(?:T[0-9:.+-Z]+)?\b/g, ' ')
+          .replace(/\b\d{4}-\d{2}\b/g, ' ')
+          .replace(/\bQ[1-4]\b/gi, ' ');
+        if (
+          /[$€£¥]\s*\d/.test(cleanedDates) ||
+          /\b\d[\d,]*(?:\.\d+)?\s*(?:%|percent)\b/i.test(cleanedDates) ||
+          /\b\d+\.\d+\b/.test(cleanedDates) ||
+          /\b\d{1,3}(?:,\d{3})+\b/.test(cleanedDates)
+        ) {
+          fail(
+            'SEMANTIC_INVALID',
+            block.id,
+            'Analytical numerical values in text must reference a grounded factId rather than literal prose',
+          );
+        }
+        const strippedOrdinalsAndYears = cleanedDates
+          .replace(/(?:^|\n)\s*\d+[.)]\s+/g, ' ')
+          .replace(/\b(?:in|for|since|from|to|through|until|of|year)\s+(?:19|20)\d{2}\b/gi, ' ');
+        if (
+          /\b(?:is|was|are|were|equals?|totals?|sum(?:med)?|averages?|averaged|reached)\s+\d+\b/i.test(
+            strippedOrdinalsAndYears,
+          )
+        ) {
+          fail(
+            'SEMANTIC_INVALID',
+            block.id,
+            'Analytical numerical values in text must reference a grounded factId rather than literal prose',
+          );
+        }
+        const bareNumbers = strippedOrdinalsAndYears.match(/\b\d+\b/g) ?? [];
+        for (const num of bareNumbers) {
+          if (argLiterals.has(num)) continue;
+          if (/^(19|20)\d{2}$/.test(num) || Number(num) < 10) continue;
+          fail(
+            'SEMANTIC_INVALID',
+            block.id,
+            'Analytical numerical values in text must reference a grounded factId rather than literal prose',
+          );
+        }
+      }
+
+      for (const part of block.parts) {
+        if (!('factId' in part)) continue;
+        const fact = facts.get(part.factId);
+        if (!fact) continue;
+        const binding = bindings.get(fact.field.bindingId);
+        if (!binding) continue;
+        const tool = this.tool(binding.tool, principal);
+        const visibleFields = this.fields(binding.tool, principal);
+        const meta = visibleFields.find((f) => f.id === fact.field.fieldId);
+        const hasFinerTemporal = visibleFields.some(
+          (f) =>
+            f.role === 'time' &&
+            f.temporal &&
+            ['second', 'minute', 'hour', 'day', 'week', 'month'].includes(f.temporal.grain),
+        );
+        const isFinerGrain =
+          !annualGrain.test(tool.grain) && (hasFinerTemporal || finerGrain.test(tool.grain));
+
+        if (isFinerGrain && coarserClaim.test(literalText)) {
+          fail(
+            'SEMANTIC_INVALID',
+            block.id,
+            'Text claims a coarser period or aggregate than the referenced result grain',
+          );
+        }
+        if (meta?.measure?.additive === false && additiveClaim.test(literalText)) {
+          fail(
+            'SEMANTIC_INVALID',
+            block.id,
+            'Text claims an additive sum over a non-additive measure',
+          );
+        }
+        if (datasets) {
+          const data = datasets[binding.id];
+          if (!data) continue;
+          const row = data.rows[fact.row];
+          if (!row) continue;
+          const effectiveArgs = { ...binding.args, ...binding.fixedArgs };
+          const hasMultiPointRange = Object.values(effectiveArgs).some(
+            (val) => Array.isArray(val) && val.length === 2 && String(val[0]) !== String(val[1]),
+          );
+          if (
+            isFinerGrain &&
+            totalClaim.test(literalText) &&
+            (data.rows.length > 1 || hasMultiPointRange)
+          ) {
+            const qualifierValues = visibleFields
+              .filter((f) => ['time', 'dimension', 'identifier'].includes(f.role))
+              .map((f) => row[f.id])
+              .filter((val): val is string => typeof val === 'string' && val.length > 0);
+            const qualified =
+              rowQualifier.test(literalText) ||
+              qualifierValues.some((val) => literalText.includes(val));
+            if (!qualified) {
+              fail(
+                'SEMANTIC_INVALID',
+                block.id,
+                'Text presents a single finer-grain row as a total without stating its row grain or date scope',
+              );
+            }
+          }
+        }
+      }
+    }
   }
   private validateControl(control: Control, plan: ResponsePlan, principal: Principal) {
     const registration = this.available(this.controls, control.control, principal);
@@ -661,5 +888,6 @@ export class FoundationCatalog {
         }
       }
     }
+    this.validateTextClaims(plan, principal, datasets);
   }
 }

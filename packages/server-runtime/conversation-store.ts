@@ -19,19 +19,35 @@ export type StoredMessage = {
   responseId?: string;
 };
 export function initializeConversationDatabase(db: DatabaseSync) {
-  db.exec(`CREATE TABLE IF NOT EXISTS v2_conversations(owner TEXT NOT NULL, conversation_id TEXT NOT NULL, scope_key TEXT NOT NULL, PRIMARY KEY(owner,conversation_id));
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_conversations(owner TEXT NOT NULL, conversation_id TEXT NOT NULL, scope_key TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,conversation_id));
       CREATE TABLE IF NOT EXISTS v2_messages(position INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, request_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant')), text TEXT NOT NULL, response_id TEXT, UNIQUE(owner,conversation_id,message_id), UNIQUE(owner,conversation_id,request_id,role), FOREIGN KEY(owner,conversation_id) REFERENCES v2_conversations(owner,conversation_id));
       CREATE UNIQUE INDEX IF NOT EXISTS v2_message_response ON v2_messages(owner,response_id) WHERE response_id IS NOT NULL;`);
+  const cols = new Set(
+    db
+      .prepare('PRAGMA table_info(v2_conversations)')
+      .all()
+      .map((c) => String((c as { name: unknown }).name)),
+  );
+  if (!cols.has('updated_at'))
+    db.exec('ALTER TABLE v2_conversations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
 }
 /** Caller owns the surrounding SQLite transaction. */
-export function prepareTurnInTransaction(db: DatabaseSync, owner: string, raw: unknown) {
+export function prepareTurnInTransaction(
+  db: DatabaseSync,
+  owner: string,
+  raw: unknown,
+  now = Date.now(),
+) {
   if (!owner) throw new Error('CONVERSATION_OWNER_REQUIRED');
   const input = Turn.parse(raw);
   if (input.userMessageId === input.assistantMessageId) throw new Error('MESSAGE_CONFLICT');
-  db.prepare('INSERT OR IGNORE INTO v2_conversations VALUES(?,?,?)').run(
+  db.prepare(
+    'INSERT OR IGNORE INTO v2_conversations(owner,conversation_id,scope_key,updated_at) VALUES(?,?,?,?)',
+  ).run(owner, input.conversationId, input.scopeKey, now);
+  db.prepare('UPDATE v2_conversations SET updated_at=? WHERE owner=? AND conversation_id=?').run(
+    now,
     owner,
     input.conversationId,
-    input.scopeKey,
   );
   const scope = db
     .prepare('SELECT scope_key FROM v2_conversations WHERE owner=? AND conversation_id=?')
@@ -69,7 +85,10 @@ export function prepareTurnInTransaction(db: DatabaseSync, owner: string, raw: u
 export class SqliteConversationStore {
   private readonly db: DatabaseSync;
   private readonly ownsConnection: boolean;
-  constructor(path: string | DatabaseSync) {
+  constructor(
+    path: string | DatabaseSync,
+    private readonly now: () => number = Date.now,
+  ) {
     this.ownsConnection = typeof path === 'string';
     if (typeof path === 'string' && path !== ':memory:')
       mkdirSync(dirname(path), { recursive: true });
@@ -92,7 +111,7 @@ export class SqliteConversationStore {
     }
   }
   prepareTurn(owner: string, raw: unknown) {
-    this.transaction(() => prepareTurnInTransaction(this.db, owner, raw));
+    this.transaction(() => prepareTurnInTransaction(this.db, owner, raw, this.now()));
   }
   attach(
     owner: string,
@@ -176,5 +195,22 @@ export class SqliteConversationStore {
           messageId: LocalId.parse(row.message_id),
         }
       : undefined;
+  }
+  /** Purge expired conversations and their messages outside active retention window. */
+  purgeExpired(retentionMs: number, now = Date.now()) {
+    if (!Number.isSafeInteger(retentionMs) || retentionMs < 1)
+      throw new Error('Invalid conversation retention');
+    const cutoff = now - retentionMs;
+    return this.transaction(() => {
+      this.db
+        .prepare(
+          'DELETE FROM v2_messages WHERE EXISTS (SELECT 1 FROM v2_conversations c WHERE c.owner=v2_messages.owner AND c.conversation_id=v2_messages.conversation_id AND c.updated_at > 0 AND c.updated_at < ?)',
+        )
+        .run(cutoff);
+      const removed = this.db
+        .prepare('DELETE FROM v2_conversations WHERE updated_at > 0 AND updated_at < ?')
+        .run(cutoff);
+      return Number(removed.changes);
+    });
   }
 }

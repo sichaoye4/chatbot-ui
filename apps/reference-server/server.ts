@@ -4,6 +4,7 @@ import {
   visualizationTools,
   withVisualizationDemo,
 } from '../../examples/data-visualization/index.ts';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -26,6 +27,80 @@ import {
 } from '../../packages/contracts/foundation.ts';
 import { BackendAction, OptionQuery, TurnRequest } from '../../packages/contracts/protocol.ts';
 
+const AuthClaims = z.strictObject({
+  id: z.string().min(1).max(160),
+  tenant: z.string().min(1).max(160),
+  domains: z.array(z.string().min(1).max(80)).max(20),
+  policyEpoch: z.number().int().positive(),
+  revoked: z.boolean().optional(),
+  exp: z.number().int().positive(),
+});
+export function signAuthToken(
+  principal: Principal,
+  secret: string,
+  ttlMs = 3_600_000,
+  now = Date.now(),
+) {
+  if (!secret || secret.length < 16) throw new Error('Auth secret must be at least 16 characters');
+  const payload = Buffer.from(
+    JSON.stringify(
+      AuthClaims.parse({
+        id: principal.id,
+        tenant: principal.tenant,
+        domains: principal.domains,
+        policyEpoch: principal.policyEpoch,
+        ...(principal.revoked !== undefined ? { revoked: principal.revoked } : {}),
+        exp: now + ttlMs,
+      }),
+    ),
+    'utf8',
+  ).toString('base64url');
+  const sig = createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+export function verifyAuthToken(
+  token: string,
+  secret: string,
+  now = Date.now(),
+): Principal | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1] || !secret) return undefined;
+  const expected = createHmac('sha256', secret).update(parts[0]).digest();
+  let supplied: Buffer;
+  try {
+    supplied = Buffer.from(parts[1], 'base64url');
+  } catch {
+    return undefined;
+  }
+  if (supplied.length !== expected.length || !timingSafeEqual(expected, supplied)) return undefined;
+  try {
+    const claims = AuthClaims.parse(
+      JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')),
+    );
+    if (claims.exp <= now) return undefined;
+    return {
+      id: claims.id,
+      tenant: claims.tenant,
+      domains: claims.domains,
+      policyEpoch: claims.policyEpoch,
+      ...(claims.revoked !== undefined ? { revoked: claims.revoked } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+function bearerOrCookieToken(req: IncomingMessage) {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) return auth.slice(7).trim();
+  const cookie = req.headers.cookie;
+  if (!cookie) return undefined;
+  for (const part of cookie.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === 'agy_auth') return decodeURIComponent(v.join('='));
+  }
+  return undefined;
+}
+
 export function createApplication(
   options: {
     database?: string;
@@ -33,6 +108,12 @@ export function createApplication(
     testToken?: string;
     staticDir?: string;
     foundationAgent?: PlanningAgent;
+    authSecret?: string;
+    authenticate?: (req: IncomingMessage) => Promise<Principal | undefined> | Principal | undefined;
+    workerId?: string;
+    leaseMs?: number;
+    multiWorker?: boolean;
+    retentionMs?: number;
   } = {},
 ) {
   const repo = new CsvRepository(
@@ -44,6 +125,12 @@ export function createApplication(
     options.database ?? '.runtime/chat.sqlite',
     options.mode ?? 'deterministic',
     options.foundationAgent,
+    {
+      workerId: options.workerId,
+      leaseMs: options.leaseMs,
+      multiWorker: options.multiWorker,
+      retentionMs: options.retentionMs,
+    },
   );
   const store = new Store(options.database ?? '.runtime/chat.sqlite');
   const queries = new QueryRuntime(
@@ -90,6 +177,10 @@ export function createApplication(
     demo: { id: 'demo', tenant: 'demo', domains: ['kyc', 'party', 'payment'], policyEpoch: 1 },
     limited: { id: 'limited', tenant: 'restricted', domains: ['kyc'], policyEpoch: 1 },
   };
+  const revokedSubjects = new Set<string>();
+  const epochOffsets = new Map<string, number>();
+  const configuredAuthSecret = options.authSecret ?? process.env.CHATBOT_AUTH_SECRET;
+  const hostAuthEnabled = Boolean(options.authenticate || configuredAuthSecret);
   const json = (res: ServerResponse, value: unknown, status = 200) => {
     res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(value));
@@ -128,10 +219,30 @@ export function createApplication(
       const path = url.pathname;
       const testAuthorized =
         !!options.testToken && req.headers['x-test-token'] === options.testToken;
-      const p =
-        testAuthorized && req.headers['x-test-principal'] === 'limited'
-          ? principals.limited
-          : principals.demo;
+      if (path === '/api/ready') {
+        json(res, { ready: true, mode: agent.mode, sourceHash: SOURCE_HASH });
+        return;
+      }
+      let resolvedPrincipal: Principal | undefined;
+      if (options.authenticate) {
+        resolvedPrincipal = await options.authenticate(req);
+      } else if (configuredAuthSecret) {
+        const token = bearerOrCookieToken(req);
+        if (token) resolvedPrincipal = verifyAuthToken(token, configuredAuthSecret);
+      } else {
+        resolvedPrincipal =
+          testAuthorized && req.headers['x-test-principal'] === 'limited'
+            ? principals.limited
+            : principals.demo;
+      }
+      if (path.startsWith('/api/') && !resolvedPrincipal)
+        throw new AppError('AUTHENTICATION_EXPIRED', 401);
+      const basePrincipal = resolvedPrincipal ?? principals.demo;
+      const p: Principal = {
+        ...basePrincipal,
+        policyEpoch: basePrincipal.policyEpoch + (epochOffsets.get(basePrincipal.id) ?? 0),
+        revoked: Boolean(basePrincipal.revoked) || revokedSubjects.has(basePrincipal.id),
+      };
       if (path.startsWith('/api/') && p.revoked) throw new AppError('DATA_FORBIDDEN', 403);
       if (req.method === 'POST') {
         let limit = limits.get(p.id);
@@ -141,14 +252,10 @@ export function createApplication(
         }
         if (++limit.count > 120) throw new AppError('RATE_LIMITED', 429);
       }
-      if (path === '/api/ready') {
-        json(res, { ready: true, mode: agent.mode, sourceHash: SOURCE_HASH });
-        return;
-      }
       if (path === '/api/session') {
         json(res, {
           mode: agent.mode,
-          identityMode: 'local-single-user-demo',
+          identityMode: hostAuthEnabled ? 'host-authenticated' : 'local-single-user-demo',
           domainOptions: p.domains,
           sourceHash: SOURCE_HASH,
         });
@@ -338,8 +445,8 @@ export function createApplication(
         return;
       }
       if (path === '/api/testing/revoke' && testAuthorized && req.method === 'POST') {
-        principals.demo.revoked = true;
-        principals.demo.policyEpoch++;
+        revokedSubjects.add(p.id);
+        epochOffsets.set(p.id, (epochOffsets.get(p.id) ?? 0) + 1);
         json(res, { ok: true });
         return;
       }
@@ -415,6 +522,7 @@ export function createApplication(
     store,
     repo,
     service,
+    purgeRetention: foundation.purgeRetention,
     close: async () => {
       const closing = server.listening
         ? new Promise<void>((done, reject) => server.close((e) => (e ? reject(e) : done())))

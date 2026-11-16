@@ -35,10 +35,11 @@ export function ControlView({
   const isSelect =
     control.control.version === 1 && ['ui.select', 'ui.multiSelect'].includes(control.control.id);
   const isDate = control.control.version === 1 && control.control.id === 'ui.dateRange';
+  const isScopeChange = control.scopeMode === 'change-answer';
   const canEdit =
     !disabled &&
     !!handlers &&
-    control.scopeMode === 'within-answer' &&
+    (control.scopeMode === 'within-answer' || isScopeChange) &&
     (isDate || (isSelect && !!handlers.resolveOptions));
   const load = async (cursor?: string) => {
     if (!resolver.current) return;
@@ -102,6 +103,9 @@ export function ControlView({
     <fieldset disabled={disabled || loading}>
       <legend>{control.label}</legend>
       <p>{control.purpose}</p>
+      {isScopeChange && (
+        <p className="foundation-note">Changing this control creates a new answer revision.</p>
+      )}
       {loading && <p role="status">Loading options…</p>}
       {isSelect && (
         <>

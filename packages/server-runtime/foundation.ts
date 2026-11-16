@@ -14,10 +14,13 @@ import { MaterializedResponse } from '../contracts/protocol.ts';
 /** Initial execution seam. Persistence/event/action migration remains separate. */
 export class FoundationRuntime {
   constructor(readonly catalog: FoundationCatalog) {}
-  private scopeIdentity(scope: string, tool: CapabilityRef, principal: Principal) {
-    return this.catalog.policy.visibleField
-      ? JSON.stringify([scope, this.catalog.fields(tool, principal).map((field) => field.id)])
-      : scope;
+  private scopeIdentity(
+    scope: string,
+    tool: CapabilityRef,
+    principal: Principal,
+    allowRestricted = false,
+  ) {
+    return this.catalog.scopeIdentity(scope, tool, principal, allowRestricted);
   }
   private async reauthorize(
     plan: ResponsePlan,
@@ -26,19 +29,19 @@ export class FoundationRuntime {
     signal: AbortSignal,
     clientComponents?: CapabilityRef[],
   ) {
-    this.catalog.validate(plan, principal, clientComponents);
     for (const binding of plan.bindings) {
       signal.throwIfAborted();
-      const tool = this.catalog.tool(binding.tool, principal);
+      const tool = this.catalog.registeredTool(binding.tool, principal);
       const args = tool.args.parse({ ...binding.args, ...binding.fixedArgs });
       const current = await this.catalog.policy.authorize(tool.ref, args, principal);
-      if (this.scopeIdentity(current.scopeKey, tool.ref, principal) !== scopes[binding.id])
+      if (this.scopeIdentity(current.scopeKey, tool.ref, principal, true) !== scopes[binding.id])
         throw new FoundationError({
           code: 'DATA_FORBIDDEN',
           path: binding.id,
           message: 'Authorization changed before publication',
         });
     }
+    this.catalog.validate(plan, principal, clientComponents);
     signal.throwIfAborted();
   }
   async execute(
@@ -47,6 +50,12 @@ export class FoundationRuntime {
     signal: AbortSignal,
     clientComponents?: CapabilityRef[],
     allowPartial = false,
+    onBindingEvent?: (
+      event:
+        | { type: 'binding.pending'; bindingId: string }
+        | { type: 'binding.ready'; bindingId: string; rowCount: number; truncated: boolean }
+        | { type: 'binding.failed'; bindingId: string; message: string },
+    ) => void | Promise<void>,
   ) {
     signal.throwIfAborted();
     const plan = this.catalog.validate(candidate, principal, clientComponents);
@@ -60,6 +69,7 @@ export class FoundationRuntime {
       const authorization = await this.catalog.policy.authorize(tool.ref, args, principal);
       scopes[binding.id] = this.scopeIdentity(authorization.scopeKey, tool.ref, principal);
       signal.throwIfAborted();
+      await onBindingEvent?.({ type: 'binding.pending', bindingId: binding.id });
       let result: unknown;
       try {
         result = await tool.execute(args, authorization.context, signal);
@@ -68,6 +78,11 @@ export class FoundationRuntime {
         // Policy, validation and cancellation failures must never become partial data.
         if (!allowPartial || error instanceof FoundationError) throw error;
         failedBindings.push(binding.id);
+        await onBindingEvent?.({
+          type: 'binding.failed',
+          bindingId: binding.id,
+          message: 'This data source failed to load.',
+        });
         continue;
       }
       signal.throwIfAborted();
@@ -79,7 +94,14 @@ export class FoundationRuntime {
           path: binding.id,
           message: 'Authorization changed during execution',
         });
-      datasets[binding.id] = this.catalog.validateResult(tool.ref, result, principal);
+      const validated = this.catalog.validateResult(tool.ref, result, principal);
+      datasets[binding.id] = validated;
+      await onBindingEvent?.({
+        type: 'binding.ready',
+        bindingId: binding.id,
+        rowCount: validated.rows.length,
+        truncated: validated.provenance.truncated,
+      });
     }
     await this.reauthorize(plan, scopes, principal, signal, clientComponents);
     if (failedBindings.length && failedBindings.length === plan.bindings.length)
@@ -175,11 +197,35 @@ export class FoundationRuntime {
       const before = await this.catalog.policy.authorize(tool.ref, args, principal);
       scopes[binding.id] = this.scopeIdentity(before.scopeKey, tool.ref, principal);
       signal.throwIfAborted();
+      const visibleFields = this.catalog.fields(tool.ref, principal);
+      const visibleFieldIds = new Set(visibleFields.map((field) => field.id));
       descriptors.push({
         bindingId: binding.id,
         source: tool.ref,
-        fields: this.catalog.fields(tool.ref, principal),
+        fields: visibleFields,
         grain: tool.grain,
+        ...(tool.sorting || tool.pagination || tool.refreshable !== undefined
+          ? {
+              capabilities: {
+                refreshable: tool.refreshable === true,
+                ...(tool.sorting
+                  ? {
+                      sorting: {
+                        fieldArg: tool.sorting.fieldArg,
+                        directionArg: tool.sorting.directionArg,
+                        fields: (
+                          tool.sorting.fields ?? visibleFields.map((field) => field.id)
+                        ).filter((id) => visibleFieldIds.has(id)),
+                        localSort: tool.sorting.localSort ?? false,
+                      },
+                    }
+                  : {}),
+                ...(tool.pagination
+                  ? { pagination: { cursorArg: tool.pagination.cursorArg } }
+                  : {}),
+              },
+            }
+          : {}),
       });
       if (failedBindings.includes(binding.id)) continue;
       let bytes: number;

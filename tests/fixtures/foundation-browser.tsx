@@ -269,7 +269,9 @@ createRoot(document.getElementById('root')!).render(
           ? 'conversation2'
           : params.get('controls') === 'partial'
             ? 'conversation3'
-            : 'conversation1'
+            : params.get('controls') === 'actions'
+              ? 'conversation4'
+              : 'conversation1'
       }
       registry={builtinRegistry}
       presentation={{ title: 'Live DeepSeek test' }}

@@ -1,0 +1,312 @@
+{
+  "optionPage": {
+    "options": [
+      {
+        "value": "retail",
+        "label": "Retail"
+      },
+      {
+        "value": "wholesale",
+        "label": "Wholesale"
+      }
+    ],
+    "nextCursor": null
+  },
+  "replayEvents": {
+    "kind": "events",
+    "status": "completed",
+    "events": [
+      {
+        "protocolVersion": 2,
+        "eventId": "event46c586ef12274361bddf34f99315d30a",
+        "requestId": "requestbe48687a254c4b74a2c4ae9b60049943",
+        "sequence": 1,
+        "conversationId": "conv_actions",
+        "messageId": "msg_orders_1",
+        "responseId": "responsea910c003984e401a8c8148e6fb697b19",
+        "revision": 1,
+        "generation": 0,
+        "type": "plan.accepted",
+        "bindingIds": [
+          "orders"
+        ]
+      },
+      {
+        "protocolVersion": 2,
+        "eventId": "evente31be74cbe4c4f39a2f2858d0204b196",
+        "requestId": "requestbe48687a254c4b74a2c4ae9b60049943",
+        "sequence": 2,
+        "conversationId": "conv_actions",
+        "messageId": "msg_orders_1",
+        "responseId": "responsea910c003984e401a8c8148e6fb697b19",
+        "revision": 1,
+        "generation": 0,
+        "type": "binding.pending",
+        "bindingId": "orders"
+      },
+      {
+        "protocolVersion": 2,
+        "eventId": "event086ee86403454957874e27bf09281c7f",
+        "requestId": "requestbe48687a254c4b74a2c4ae9b60049943",
+        "sequence": 3,
+        "conversationId": "conv_actions",
+        "messageId": "msg_orders_1",
+        "responseId": "responsea910c003984e401a8c8148e6fb697b19",
+        "revision": 1,
+        "generation": 0,
+        "type": "binding.ready",
+        "bindingId": "orders",
+        "rowCount": 2,
+        "truncated": true
+      },
+      {
+        "protocolVersion": 2,
+        "eventId": "event051fff2918b149058beed3c1e482b448",
+        "requestId": "requestbe48687a254c4b74a2c4ae9b60049943",
+        "sequence": 4,
+        "conversationId": "conv_actions",
+        "messageId": "msg_orders_1",
+        "type": "response.committed",
+        "response": {
+          "protocolVersion": 2,
+          "messageId": "msg_orders_1",
+          "responseId": "responsea910c003984e401a8c8148e6fb697b19",
+          "revision": 1,
+          "generation": 0,
+          "plan": {
+            "schemaVersion": 2,
+            "capabilitySnapshotId": "catalog-34-6d8ef24a",
+            "bindings": [
+              {
+                "id": "orders",
+                "tool": {
+                  "id": "orders.list",
+                  "version": 1
+                },
+                "args": {},
+                "fixedArgs": {
+                  "tier": null
+                }
+              }
+            ],
+            "facts": [
+              {
+                "id": "firstAmount",
+                "field": {
+                  "bindingId": "orders",
+                  "fieldId": "amount"
+                },
+                "row": 0,
+                "format": "integer"
+              }
+            ],
+            "blocks": [
+              {
+                "id": "summary",
+                "kind": "text",
+                "parts": [
+                  {
+                    "text": "First visible amount: "
+                  },
+                  {
+                    "factId": "firstAmount"
+                  }
+                ]
+              },
+              {
+                "id": "view",
+                "kind": "visual",
+                "elements": [
+                  {
+                    "id": "ordersTbl",
+                    "component": {
+                      "id": "ui.table",
+                      "version": 1
+                    },
+                    "title": "Orders",
+                    "roles": {
+                      "columns": [
+                        {
+                          "bindingId": "orders",
+                          "fieldId": "date"
+                        },
+                        {
+                          "bindingId": "orders",
+                          "fieldId": "item"
+                        },
+                        {
+                          "bindingId": "orders",
+                          "fieldId": "amount"
+                        }
+                      ]
+                    },
+                    "props": {}
+                  }
+                ],
+                "controls": [
+                  {
+                    "id": "tier",
+                    "control": {
+                      "id": "ui.select",
+                      "version": 1
+                    },
+                    "label": "Tier",
+                    "purpose": "Select tier",
+                    "scopeMode": "change-answer",
+                    "targets": [
+                      {
+                        "bindingId": "orders",
+                        "argument": "tier"
+                      }
+                    ],
+                    "initialValue": null,
+                    "dependsOn": []
+                  }
+                ],
+                "layoutIntent": "auto"
+              }
+            ]
+          },
+          "bindingDescriptors": [
+            {
+              "bindingId": "orders",
+              "source": {
+                "id": "orders.list",
+                "version": 1
+              },
+              "fields": [
+                {
+                  "id": "date",
+                  "label": "Date",
+                  "type": "date",
+                  "role": "time",
+                  "nullable": false,
+                  "description": "Order date",
+                  "temporal": {
+                    "timezone": "UTC",
+                    "calendar": "gregorian",
+                    "grain": "day"
+                  }
+                },
+                {
+                  "id": "item",
+                  "label": "Item",
+                  "type": "string",
+                  "role": "dimension",
+                  "nullable": false,
+                  "description": "Order item"
+                },
+                {
+                  "id": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "role": "measure",
+                  "nullable": false,
+                  "unit": "USD",
+                  "description": "Order amount",
+                  "measure": {
+                    "aggregation": "sum",
+                    "precision": 0,
+                    "additive": true
+                  }
+                }
+              ],
+              "grain": "one row per order",
+              "capabilities": {
+                "refreshable": true,
+                "sorting": {
+                  "fieldArg": "sort",
+                  "directionArg": "direction",
+                  "fields": [
+                    "date",
+                    "item",
+                    "amount"
+                  ],
+                  "localSort": false
+                },
+                "pagination": {
+                  "cursorArg": "cursor"
+                }
+              }
+            }
+          ],
+          "datasets": {
+            "orders": {
+              "status": "ready",
+              "result": {
+                "rows": [
+                  {
+                    "date": "2024-01-01",
+                    "item": "alpha",
+                    "amount": 10
+                  },
+                  {
+                    "date": "2024-01-02",
+                    "item": "beta",
+                    "amount": 31
+                  }
+                ],
+                "provenance": {
+                  "sourceId": "orders",
+                  "sourceVersion": "v1",
+                  "queryId": "q1",
+                  "executedAt": "2026-11-15T12:00:00Z",
+                  "sourceAsOf": "2026-11-15T12:00:00Z",
+                  "grain": "one row per order",
+                  "truncated": true,
+                  "nextCursor": "page2",
+                  "warnings": []
+                }
+              }
+            }
+          },
+          "facts": {
+            "firstAmount": {
+              "value": "10",
+              "field": {
+                "bindingId": "orders",
+                "fieldId": "amount"
+              },
+              "row": 0,
+              "format": "integer"
+            }
+          },
+          "operations": [
+            {
+              "id": "ui.setControl",
+              "version": 1
+            },
+            {
+              "id": "ui.sort",
+              "version": 1
+            },
+            {
+              "id": "ui.paginate",
+              "version": 1
+            },
+            {
+              "id": "ui.refresh",
+              "version": 1
+            }
+          ],
+          "status": "complete",
+          "diagnostics": []
+        }
+      },
+      {
+        "protocolVersion": 2,
+        "eventId": "event3518dd343687419dabd4e2e76156575b",
+        "requestId": "requestbe48687a254c4b74a2c4ae9b60049943",
+        "sequence": 5,
+        "conversationId": "conv_actions",
+        "messageId": "msg_orders_1",
+        "type": "request.completed"
+      }
+    ]
+  },
+  "replayExpired": {
+    "kind": "expired",
+    "status": "completed",
+    "responseId": "responsea910c003984e401a8c8148e6fb697b19"
+  }
+}

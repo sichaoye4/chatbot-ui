@@ -599,3 +599,415 @@ test('SQLite serializes competing coordinators and replays a shared idempotency 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('change-answer creates immutable new revisions and dependentPolicy resets or rejects invalid dependent controls', async () => {
+  const c = makeCatalog();
+  const basePlan = plan(c, 0);
+  const snapshot = c.snapshot(principal);
+  const scopePlan: ResponsePlan = {
+    ...basePlan,
+    capabilitySnapshotId: snapshot.id,
+    bindings: [
+      {
+        ...basePlan.bindings[0],
+        args: { area: 'north', region: 'east' },
+        fixedArgs: {},
+      },
+    ],
+    blocks: basePlan.blocks.map((block) =>
+      block.kind === 'visual'
+        ? {
+            ...block,
+            controls: [
+              {
+                id: 'area',
+                control: { id: 'ui.select', version: 1 },
+                label: 'Area',
+                purpose: 'Select area',
+                targets: [{ bindingId: 'data', argument: 'area' }],
+                scopeMode: 'change-answer',
+                dependsOn: [],
+                dependentPolicy: 'reset',
+                initialValue: 'north',
+              },
+              {
+                id: 'region',
+                control: { id: 'ui.select', version: 1 },
+                label: 'Region',
+                purpose: 'Select region',
+                targets: [{ bindingId: 'data', argument: 'region' }],
+                scopeMode: 'within-answer',
+                dependsOn: ['area'],
+                initialValue: 'east',
+              },
+            ],
+          }
+        : block,
+    ),
+  };
+  const runtime = new FoundationRuntime(c);
+  const initialExec = await runtime.execute(scopePlan, principal, signal());
+  const initial = await runtime.ingest(
+    scopePlan,
+    initialExec.datasets,
+    principal,
+    signal(),
+    identity,
+  );
+  const service = new FoundationControlService(c, (who) => String(who.context.account ?? ''));
+  await service.attach(initial, principal, signal(), { enableControls: true });
+
+  // Changing 'area' from 'north' -> 'south' invalidates 'region: east' because south only allows 'west'.
+  // dependentPolicy: 'reset' resets dependent 'region' to null and creates a new immutable revision!
+  const revised = await service.change(
+    {
+      responseId: initial.responseId,
+      revision: 1,
+      generation: 0,
+      controlId: 'area',
+      value: 'south',
+      idempotencyKey: 'scope1',
+      newMessageId: 'message2',
+    },
+    principal,
+    signal(),
+  );
+  assert.notEqual(revised.responseId, initial.responseId);
+  assert.equal(revised.messageId, 'message2');
+  assert.equal(revised.revision, 2);
+  assert.equal(revised.generation, 0);
+  const revisedControls = revised.plan.blocks.find((b) => b.kind === 'visual')?.controls ?? [];
+  assert.equal(revisedControls.find((ctrl) => ctrl.id === 'area')?.initialValue, 'south');
+  assert.equal(revisedControls.find((ctrl) => ctrl.id === 'region')?.initialValue, null);
+  assert.ok(
+    revised.diagnostics.some((d) => d.code === 'SCOPE_CONFLICT' && d.targetId === 'region'),
+  );
+  // Original revision remains untouched and readable.
+  const prior = await service.read(initial.responseId, principal, signal(), 1, 0);
+  assert.equal(prior.revision, 1);
+  assert.equal(
+    prior.plan.blocks.find((b) => b.kind === 'visual')?.controls.find((ctrl) => ctrl.id === 'area')
+      ?.initialValue,
+    'north',
+  );
+
+  // dependentPolicy: 'reject' fails instead of resetting.
+  const rejectPlan: ResponsePlan = {
+    ...scopePlan,
+    blocks: scopePlan.blocks.map((block) =>
+      block.kind === 'visual'
+        ? {
+            ...block,
+            controls: block.controls.map((ctrl) =>
+              ctrl.id === 'area' ? { ...ctrl, dependentPolicy: 'reject' as const } : ctrl,
+            ),
+          }
+        : block,
+    ),
+  };
+  const rejectIdentity = {
+    messageId: 'm_reject',
+    responseId: 'r_reject',
+    revision: 1,
+    generation: 0,
+  };
+  const rejectExec = await runtime.execute(rejectPlan, principal, signal());
+  const rejectInitial = await runtime.ingest(
+    rejectPlan,
+    rejectExec.datasets,
+    principal,
+    signal(),
+    rejectIdentity,
+  );
+  await service.attach(rejectInitial, principal, signal(), { enableControls: true });
+  await assert.rejects(
+    service.change(
+      {
+        responseId: 'r_reject',
+        revision: 1,
+        generation: 0,
+        controlId: 'area',
+        value: 'south',
+        idempotencyKey: 'reject1',
+        newMessageId: 'm_reject_2',
+      },
+      principal,
+      signal(),
+    ),
+    /SCOPE_CONFLICT/,
+  );
+});
+
+test('ui.sort, ui.paginate, ui.refresh, and custom host actions update responses safely and obey static snapshot barriers', async () => {
+  const c = registerBuiltins(new FoundationCatalog(permissivePolicy));
+  let refreshCount = 0;
+  let customNoteApplied = '';
+  const allRows = [
+    { date: '2024-01-01', item: 'alpha', amount: 10 },
+    { date: '2024-01-02', item: 'beta', amount: 30 },
+    { date: '2024-01-03', item: 'gamma', amount: 20 },
+  ];
+  c.registerDomain({
+    ref: { id: 'orders.domain', version: 1 },
+    description: 'Orders domain',
+    semantics: ['Orders'],
+    tools: [
+      {
+        ref: { id: 'orders.list', version: 1 },
+        description: 'Orders list',
+        args: z.strictObject({
+          sort: z.enum(['date', 'item', 'amount']).optional(),
+          direction: z.enum(['asc', 'desc']).optional(),
+          cursor: z.string().optional(),
+        }),
+        fields: [
+          {
+            id: 'date',
+            label: 'Date',
+            description: 'Order date',
+            type: 'date',
+            role: 'time',
+            nullable: false,
+            temporal: { timezone: 'UTC', calendar: 'gregorian', grain: 'day' },
+          },
+          {
+            id: 'item',
+            label: 'Item',
+            description: 'Order item',
+            type: 'string',
+            role: 'dimension',
+            nullable: false,
+          },
+          {
+            id: 'amount',
+            label: 'Amount',
+            description: 'Order amount',
+            type: 'number',
+            role: 'measure',
+            nullable: false,
+            unit: 'USD',
+            measure: { aggregation: 'sum', precision: 0, additive: true },
+          },
+        ],
+        grain: 'one row per order',
+        interactive: {},
+        refreshable: true,
+        sorting: {
+          fieldArg: 'sort',
+          directionArg: 'direction',
+          fields: ['date', 'item', 'amount'],
+          localSort: false,
+        },
+        pagination: { cursorArg: 'cursor' },
+        execute: async (args) => {
+          refreshCount++;
+          const sorted = [...allRows].sort((a, b) => {
+            const key = (args.sort as 'date' | 'item' | 'amount' | undefined) ?? 'date';
+            const dir = args.direction === 'desc' ? -1 : 1;
+            const cmp = a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0;
+            return cmp * dir;
+          });
+          const offset = args.cursor === 'page2' ? 2 : 0;
+          const page = sorted.slice(offset, offset + 2);
+          return {
+            rows: page,
+            provenance: {
+              sourceId: 'orders',
+              sourceVersion: `v${refreshCount}`,
+              queryId: `q${refreshCount}`,
+              executedAt: new Date().toISOString(),
+              sourceAsOf: new Date().toISOString(),
+              grain: 'one row per order',
+              truncated: offset + page.length < sorted.length,
+              nextCursor: offset + page.length < sorted.length ? 'page2' : null,
+              warnings: [],
+            },
+          };
+        },
+      },
+    ],
+  });
+  c.registerAction({
+    ref: { id: 'orders.tagNote', version: 1 },
+    description: 'Attach host tag diagnostic note',
+    payload: z.strictObject({ note: z.string().min(1).max(40) }),
+    sideEffects: 'stateful',
+    execute: async ({ payload }) => {
+      customNoteApplied = String(payload.note);
+      return {
+        diagnostics: [
+          { code: 'SCOPE_CONFLICT', message: `Tag: ${customNoteApplied}`, retryable: false },
+        ],
+      };
+    },
+  });
+
+  const snap = c.snapshot(principal);
+  assert.ok(snap.actions.some((a) => a.ref.id === 'orders.tagNote'));
+  const ordersPlan: ResponsePlan = {
+    schemaVersion: 2,
+    capabilitySnapshotId: snap.id,
+    bindings: [{ id: 'orders', tool: { id: 'orders.list', version: 1 }, args: {}, fixedArgs: {} }],
+    facts: [
+      {
+        id: 'topAmount',
+        field: { bindingId: 'orders', fieldId: 'amount' },
+        row: 0,
+        format: 'integer',
+      },
+    ],
+    blocks: [
+      {
+        id: 'summary',
+        kind: 'text',
+        parts: [{ text: 'Top visible order amount: ' }, { factId: 'topAmount' }],
+      },
+      {
+        id: 'view',
+        kind: 'visual',
+        layoutIntent: 'auto',
+        controls: [],
+        elements: [
+          {
+            id: 'tbl',
+            component: { id: 'ui.table', version: 1 },
+            title: 'Orders',
+            roles: {
+              columns: [
+                { bindingId: 'orders', fieldId: 'date' },
+                { bindingId: 'orders', fieldId: 'item' },
+                { bindingId: 'orders', fieldId: 'amount' },
+              ],
+            },
+            props: {},
+          },
+        ],
+      },
+    ],
+  };
+
+  const ordersRuntime = new FoundationRuntime(c);
+  const initialExec = await ordersRuntime.execute(ordersPlan, principal, signal());
+  const initial = await ordersRuntime.ingest(
+    ordersPlan,
+    initialExec.datasets,
+    principal,
+    signal(),
+    identity,
+  );
+  const service = new FoundationControlService(c, (who) => String(who.context.account ?? ''));
+  await service.attach(initial, principal, signal(), { enableControls: true });
+  const attached = await service.read('response1', principal, signal());
+  assert.deepEqual(attached.operations.map((o) => o.id).sort(), [
+    'orders.tagNote',
+    'ui.paginate',
+    'ui.refresh',
+    'ui.sort',
+  ]);
+
+  // Paginate to page 2
+  const page2 = await service.performAction(
+    {
+      responseId: 'response1',
+      revision: 1,
+      generation: 0,
+      action: { id: 'ui.paginate', version: 1 },
+      payload: { bindingId: 'orders', cursor: 'page2' },
+      idempotencyKey: 'act_page2',
+    },
+    principal,
+    signal(),
+  );
+  assert.equal(page2.generation, 1);
+  assert.equal(
+    page2.datasets.orders.status === 'ready' && page2.datasets.orders.result.rows[0].item,
+    'gamma',
+  );
+
+  // Sorting invalidates active cursor back to undefined!
+  const sorted = await service.performAction(
+    {
+      responseId: 'response1',
+      revision: 1,
+      generation: 1,
+      action: { id: 'ui.sort', version: 1 },
+      payload: { bindingId: 'orders', fieldId: 'amount', direction: 'desc' },
+      idempotencyKey: 'act_sort',
+    },
+    principal,
+    signal(),
+  );
+  assert.equal(sorted.generation, 2);
+  assert.equal(sorted.plan.bindings[0].args.cursor, undefined);
+  assert.equal(
+    sorted.datasets.orders.status === 'ready' && sorted.datasets.orders.result.rows[0].amount,
+    30,
+  );
+
+  // Refresh re-executes binding cleanly preserving sort!
+  const beforeRefresh = refreshCount;
+  const refreshed = await service.performAction(
+    {
+      responseId: 'response1',
+      revision: 1,
+      generation: 2,
+      action: { id: 'ui.refresh', version: 1 },
+      payload: { bindingId: 'orders' },
+      idempotencyKey: 'act_refresh',
+    },
+    principal,
+    signal(),
+  );
+  assert.equal(refreshCount, beforeRefresh + 1);
+  assert.equal(refreshed.generation, 3);
+  assert.equal(refreshed.plan.bindings[0].args.sort, 'amount');
+
+  // Custom host action executes & updates generation
+  const tagged = await service.performAction(
+    {
+      responseId: 'response1',
+      revision: 1,
+      generation: 3,
+      action: { id: 'orders.tagNote', version: 1 },
+      payload: { note: 'verified' },
+      idempotencyKey: 'act_custom',
+    },
+    principal,
+    signal(),
+  );
+  assert.equal(customNoteApplied, 'verified');
+  assert.equal(tagged.generation, 4);
+
+  // Static snapshot (`enableControls: false`) exposes no operations and denies actions.
+  const staticExec = await ordersRuntime.execute(ordersPlan, principal, signal());
+  const staticResp = await ordersRuntime.ingest(
+    ordersPlan,
+    staticExec.datasets,
+    principal,
+    signal(),
+    {
+      messageId: 'm_static',
+      responseId: 'r_static',
+      revision: 1,
+      generation: 0,
+    },
+  );
+  await service.attach(staticResp, principal, signal(), { enableControls: false });
+  const readStatic = await service.read('r_static', principal, signal());
+  assert.deepEqual(readStatic.operations, []);
+  await assert.rejects(
+    service.performAction(
+      {
+        responseId: 'r_static',
+        revision: 1,
+        generation: 0,
+        action: { id: 'ui.sort', version: 1 },
+        payload: { bindingId: 'orders', fieldId: 'amount', direction: 'desc' },
+        idempotencyKey: 'act_denied',
+      },
+      principal,
+      signal(),
+    ),
+    /CAPABILITY_UNAVAILABLE/,
+  );
+});

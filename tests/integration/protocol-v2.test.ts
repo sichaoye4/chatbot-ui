@@ -81,16 +81,55 @@ test('normalized events preserve the last committed generation on stale, interru
   });
   state = reduceFoundationEvent(state, {
     ...base,
+    type: 'plan.accepted',
+    eventId: 'event_plan',
+    sequence: 1,
+    responseId: 'response1',
+    revision: 1,
+    generation: 1,
+    bindingIds: ['data', 'extra'],
+  });
+  assert.equal(state.response, undefined);
+  assert.equal(state.staged?.bindings.data.status, 'pending');
+  state = reduceFoundationEvent(state, {
+    ...base,
+    type: 'binding.ready',
+    eventId: 'event_ready',
+    sequence: 2,
+    responseId: 'response1',
+    revision: 1,
+    generation: 1,
+    bindingId: 'data',
+    rowCount: 1,
+    truncated: false,
+  });
+  state = reduceFoundationEvent(state, {
+    ...base,
+    type: 'binding.failed',
+    eventId: 'event_fail',
+    sequence: 3,
+    responseId: 'response1',
+    revision: 1,
+    generation: 1,
+    bindingId: 'extra',
+    diagnostic: { code: 'SOURCE_FAILURE', message: 'Failed', retryable: true },
+  });
+  assert.equal(state.response, undefined);
+  assert.equal(state.staged?.bindings.data.status, 'ready');
+  assert.equal(state.staged?.bindings.extra.status, 'failed');
+  state = reduceFoundationEvent(state, {
+    ...base,
     type: 'response.committed',
     eventId: 'event2',
-    sequence: 1,
+    sequence: 4,
     response,
   });
+  assert.equal(state.staged, undefined);
   const duplicate = reduceFoundationEvent(state, {
     ...base,
     type: 'response.committed',
     eventId: 'event2',
-    sequence: 1,
+    sequence: 4,
     response,
   });
   assert.strictEqual(duplicate, state);
@@ -98,25 +137,27 @@ test('normalized events preserve the last committed generation on stale, interru
     ...base,
     type: 'response.committed',
     eventId: 'event3',
-    sequence: 2,
+    sequence: 5,
     response: { ...response, responseId: 'other' },
   });
   assert.equal(state.response?.responseId, 'response1');
   assert.equal(interruptFoundationRequest(state).status, 'interrupted');
+  assert.equal(interruptFoundationRequest(state).staged, undefined);
   state = reduceFoundationEvent(state, {
     ...base,
     type: 'request.cancelled',
     eventId: 'event4',
-    sequence: 3,
+    sequence: 6,
   });
   assert.equal(state.status, 'cancelled');
+  assert.equal(state.staged, undefined);
   assert.equal(state.response?.generation, 0);
   assert.strictEqual(
     reduceFoundationEvent(state, {
       ...base,
       type: 'request.completed',
       eventId: 'event5',
-      sequence: 4,
+      sequence: 7,
     }),
     state,
   );

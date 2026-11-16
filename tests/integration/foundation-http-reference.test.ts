@@ -92,7 +92,14 @@ test('reference HTTP v2 restores and replays a scoped CSV control update after s
     const turn = await collect(client.sendTurn(input, signal()));
     assert.deepEqual(
       turn.map((item) => item.type),
-      ['request.started', 'response.committed', 'request.completed'],
+      [
+        'request.started',
+        'plan.accepted',
+        'binding.pending',
+        'binding.ready',
+        'response.committed',
+        'request.completed',
+      ],
     );
     const initial = turn.find((item) => item.type === 'response.committed');
     if (!initial || initial.type !== 'response.committed') throw new Error('No response');

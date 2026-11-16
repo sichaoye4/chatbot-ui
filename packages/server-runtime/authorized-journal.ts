@@ -46,6 +46,8 @@ export class AuthorizedRequestJournal {
       idempotencyKey: string;
       operation: string;
       fingerprint: string;
+      workerId?: string;
+      leaseMs?: number;
     },
     principal: Principal,
     signal: AbortSignal,
@@ -62,14 +64,17 @@ export class AuthorizedRequestJournal {
       idempotencyKey: string;
       operation: string;
       fingerprint: string;
+      workerId?: string;
+      leaseMs?: number;
     },
     text: string,
     principal: Principal,
     signal: AbortSignal,
+    userMessageId?: string,
   ) {
     const scopeKey = await this.scope(input.conversationId, principal, signal);
     if ((await this.scope(input.conversationId, principal, signal)) !== scopeKey) denied();
-    return this.store.beginTurn(this.owner(principal), { ...input, scopeKey }, text);
+    return this.store.beginTurn(this.owner(principal), { ...input, scopeKey }, text, userMessageId);
   }
   async append(raw: unknown, principal: Principal, signal: AbortSignal) {
     const event = ProtocolEvent.parse(raw);
@@ -133,5 +138,23 @@ export class AuthorizedRequestJournal {
   async interrupt(requestId: string, principal: Principal, signal: AbortSignal) {
     await this.inspect(requestId, principal, signal);
     return this.store.interrupt(this.owner(principal), requestId);
+  }
+  async renewLease(
+    requestId: string,
+    workerId: string,
+    leaseMs: number,
+    principal: Principal,
+    signal: AbortSignal,
+  ) {
+    await this.inspect(requestId, principal, signal);
+    return this.store.renewLease(this.owner(principal), requestId, workerId, leaseMs);
+  }
+  async requestCancel(requestId: string, principal: Principal, signal: AbortSignal) {
+    await this.inspect(requestId, principal, signal);
+    return this.store.requestCancel(this.owner(principal), requestId);
+  }
+  async isCancelRequested(requestId: string, principal: Principal, signal: AbortSignal) {
+    await this.inspect(requestId, principal, signal);
+    return this.store.isCancelRequested(this.owner(principal), requestId);
   }
 }

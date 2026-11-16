@@ -122,6 +122,93 @@ test.beforeAll(async () => {
       },
     ],
   });
+  let orderRefreshCount = 0;
+  catalog.registerOptionResolver({
+    ref: { id: 'orders.tiers', version: 1 },
+    resolve: async () => ({
+      options: [
+        { value: 'retail', label: 'Retail' },
+        { value: 'wholesale', label: 'Wholesale' },
+      ],
+      nextCursor: null,
+    }),
+    accepts: async ({ value }) => ['retail', 'wholesale'].includes(value),
+  });
+  catalog.registerDomain({
+    ref: { id: 'orders.domain', version: 1 },
+    description: 'Orders domain',
+    semantics: ['Orders'],
+    tools: [
+      {
+        ref: { id: 'orders.list', version: 1 },
+        description: 'Orders list',
+        args: z.strictObject({
+          tier: z.enum(['retail', 'wholesale']).nullable().optional(),
+          sort: z.enum(['date', 'item', 'amount']).optional(),
+          direction: z.enum(['asc', 'desc']).optional(),
+          cursor: z.string().optional(),
+        }),
+        fields: [
+          field('date', 'date', 'time'),
+          field('item', 'string', 'dimension'),
+          field('amount', 'number', 'measure', 'items'),
+        ],
+        grain: 'one row per order',
+        refreshable: true,
+        sorting: {
+          fieldArg: 'sort',
+          directionArg: 'direction',
+          fields: ['date', 'item', 'amount'],
+          localSort: false,
+        },
+        pagination: { cursorArg: 'cursor' },
+        interactive: {
+          tier: {
+            description: 'Order tier',
+            controls: [{ id: 'ui.select', version: 1 }],
+            options: { id: 'orders.tiers', version: 1 },
+          },
+        },
+        execute: async (args) => {
+          orderRefreshCount++;
+          const base =
+            args.tier === 'wholesale'
+              ? [
+                  { date: '2024-02-01', item: 'bulk-gamma', amount: 500 + orderRefreshCount },
+                  { date: '2024-02-02', item: 'bulk-alpha', amount: 300 },
+                  { date: '2024-02-03', item: 'bulk-beta', amount: 400 },
+                ]
+              : [
+                  { date: '2024-01-01', item: 'alpha', amount: 10 + orderRefreshCount },
+                  { date: '2024-01-02', item: 'beta', amount: 30 },
+                  { date: '2024-01-03', item: 'gamma', amount: 20 },
+                ];
+          const sortKey = (args.sort as 'date' | 'item' | 'amount' | undefined) ?? 'date';
+          const dir = args.direction === 'desc' ? -1 : 1;
+          const sorted = [...base].sort(
+            (a, b) => (a[sortKey] < b[sortKey] ? -1 : a[sortKey] > b[sortKey] ? 1 : 0) * dir,
+          );
+          const offset = args.cursor === 'page2' ? 2 : 0;
+          const page = sorted.slice(offset, offset + 2);
+          const hasMore = offset + page.length < sorted.length;
+          return {
+            rows: page,
+            provenance: {
+              sourceId: 'orders-fixture',
+              sourceVersion: `v${orderRefreshCount}`,
+              queryId: `q${orderRefreshCount}`,
+              executedAt: '2026-11-15T00:00:00Z',
+              sourceAsOf: '2026-11-15T00:00:00Z',
+              grain: 'one row per order',
+              truncated: hasMore,
+              nextCursor: hasMore ? 'page2' : null,
+              warnings: [],
+            },
+          };
+        },
+      },
+    ],
+  });
   const proposal = plan(catalog);
   const block = proposal.blocks[0];
   if (block.kind !== 'visual') throw new Error('Expected visual');
@@ -250,6 +337,77 @@ test.beforeAll(async () => {
   await service.attach(partialSnapshot, principal, new AbortController().signal, {
     enableControls: true,
   });
+  const ordersSnapId = catalog.snapshot(principal).id;
+  const actionsPlan: ResponsePlan = {
+    schemaVersion: 2,
+    capabilitySnapshotId: ordersSnapId,
+    bindings: [
+      {
+        id: 'orders',
+        tool: { id: 'orders.list', version: 1 },
+        args: { tier: null },
+        fixedArgs: {},
+      },
+    ],
+    facts: [],
+    blocks: [
+      {
+        id: 'answer',
+        kind: 'visual',
+        layoutIntent: 'auto',
+        controls: [
+          {
+            id: 'tier',
+            control: { id: 'ui.select', version: 1 },
+            label: 'Tier',
+            purpose: 'Switch order tier',
+            scopeMode: 'change-answer',
+            targets: [{ bindingId: 'orders', argument: 'tier' }],
+            initialValue: null,
+            dependsOn: [],
+          },
+        ],
+        elements: [
+          {
+            id: 'ordersTable',
+            component: { id: 'ui.table', version: 1 },
+            title: 'Orders table',
+            roles: {
+              columns: [
+                { bindingId: 'orders', fieldId: 'date' },
+                { bindingId: 'orders', fieldId: 'item' },
+                { bindingId: 'orders', fieldId: 'amount' },
+              ],
+            },
+            props: {},
+          },
+        ],
+      },
+    ],
+  };
+  const actionsExec = await runtime.execute(actionsPlan, principal, new AbortController().signal);
+  const actionsInitial = await runtime.ingest(
+    actionsPlan,
+    actionsExec.datasets,
+    principal,
+    new AbortController().signal,
+    {
+      messageId: 'actionsMessage',
+      responseId: 'actionsResponse',
+      revision: 1,
+      generation: 0,
+    },
+  );
+  await service.attach(actionsInitial, principal, new AbortController().signal, {
+    enableControls: true,
+  });
+  const conversation4Entries: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    text: string;
+    responseId?: string;
+  }> = [{ id: 'actionsMessage', role: 'assistant', text: '', responseId: 'actionsResponse' }];
+  const conversation4ResponseIds = new Set(['actionsResponse']);
   server = await createServer({
     configFile: false,
     root: process.cwd(),
@@ -270,6 +428,9 @@ test.beforeAll(async () => {
                   operations: [
                     { id: 'ui.setControl', version: 1 },
                     { id: 'ui.retryBinding', version: 1 },
+                    { id: 'ui.sort', version: 1 },
+                    { id: 'ui.paginate', version: 1 },
+                    { id: 'ui.refresh', version: 1 },
                   ],
                   history: true,
                   replay: false,
@@ -323,6 +484,26 @@ test.beforeAll(async () => {
                     },
                   ],
                 });
+              if (req.url === '/conversations/conversation4')
+                return json({
+                  conversationId: 'conversation4',
+                  messages: await Promise.all(
+                    conversation4Entries.map(async (entry) => ({
+                      id: entry.id,
+                      role: entry.role,
+                      text: entry.text,
+                      ...(entry.responseId
+                        ? {
+                            response: await service.read(
+                              entry.responseId,
+                              principal,
+                              new AbortController().signal,
+                            ),
+                          }
+                        : {}),
+                    })),
+                  ),
+                });
               let raw = '';
               for await (const chunk of req) raw += String(chunk);
               const input = JSON.parse(raw);
@@ -332,21 +513,33 @@ test.beforeAll(async () => {
                 );
               if (req.url === '/actions') {
                 res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+                const isConv4 = conversation4ResponseIds.has(input.responseId);
+                const newMessageId =
+                  typeof input.payload?.newMessageId === 'string'
+                    ? input.payload.newMessageId
+                    : undefined;
+                const conv4Entry = isConv4
+                  ? conversation4Entries.find((e) => e.responseId === input.responseId)
+                  : undefined;
                 const base = {
                   protocolVersion: 2,
-                  requestId: 'request1',
+                  requestId: `request_${Date.now()}_${Math.random().toString(16).slice(2)}`,
                   conversationId:
                     input.responseId === 'warehouseResponse'
                       ? 'conversation2'
                       : input.responseId === 'partialResponse'
                         ? 'conversation3'
-                        : 'conversation1',
+                        : isConv4
+                          ? 'conversation4'
+                          : 'conversation1',
                   messageId:
-                    input.responseId === 'warehouseResponse'
+                    newMessageId ??
+                    conv4Entry?.id ??
+                    (input.responseId === 'warehouseResponse'
                       ? 'warehouseMessage'
                       : input.responseId === 'partialResponse'
                         ? 'partialMessage'
-                        : 'message1',
+                        : 'message1'),
                 };
                 const emit = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
                 emit({ ...base, type: 'request.started', eventId: 'event1', sequence: 0 });
@@ -364,18 +557,41 @@ test.beforeAll(async () => {
                           principal,
                           new AbortController().signal,
                         )
-                      : await service.change(
-                          {
-                            responseId: input.responseId,
-                            revision: input.revision,
-                            generation: input.generation,
-                            controlId: input.payload.controlId,
-                            value: input.payload.value,
-                            idempotencyKey: input.idempotencyKey,
-                          },
-                          principal,
-                          new AbortController().signal,
-                        );
+                      : input.action.id === 'ui.setControl'
+                        ? await service.change(
+                            {
+                              responseId: input.responseId,
+                              revision: input.revision,
+                              generation: input.generation,
+                              controlId: input.payload.controlId,
+                              value: input.payload.value,
+                              idempotencyKey: input.idempotencyKey,
+                              ...(newMessageId ? { newMessageId } : {}),
+                            },
+                            principal,
+                            new AbortController().signal,
+                          )
+                        : await service.performAction(
+                            input,
+                            principal,
+                            new AbortController().signal,
+                          );
+                  if (isConv4 && newMessageId && typeof input.payload?.userMessageId === 'string') {
+                    conversation4ResponseIds.add(response.responseId);
+                    conversation4Entries.push(
+                      {
+                        id: input.payload.userMessageId,
+                        role: 'user',
+                        text: `Scope change (Tier): ${String(input.payload.value ?? 'all permitted values')}`,
+                      },
+                      {
+                        id: newMessageId,
+                        role: 'assistant',
+                        text: '',
+                        responseId: response.responseId,
+                      },
+                    );
+                  }
                   emit({
                     ...base,
                     type: 'response.committed',
@@ -478,4 +694,51 @@ test('multi-select and date range work in an unrelated registered domain', async
   await page.getByLabel('End', { exact: true }).fill('2025-12-31');
   await page.getByRole('button', { name: 'Apply dates' }).click();
   await expect(stock.getByText('No observations are available.')).toBeVisible();
+});
+
+test('table sorting, pagination, refresh, and change-answer controls work end-to-end in browser', async ({
+  page,
+}) => {
+  await page.goto(`${url}/tests/fixtures/foundation-browser.html?controls=actions`);
+  const tableRegion = page.getByRole('region', { name: 'Orders table', exact: true }).first();
+  await expect(tableRegion.getByRole('table').first()).toContainText('alpha');
+  await expect(tableRegion.getByRole('table').first()).toContainText('11');
+
+  // Paginate Next page -> Previous page
+  await tableRegion.getByRole('button', { name: 'Next page' }).click();
+  await expect(tableRegion.getByRole('table').first()).toContainText('gamma');
+  await tableRegion.getByRole('button', { name: 'Previous page' }).click();
+  await expect(tableRegion.getByRole('table').first()).toContainText('alpha');
+
+  // Sort by amount asc -> desc
+  await tableRegion.getByRole('button', { name: /^amount/ }).click();
+  await expect(tableRegion.getByRole('columnheader', { name: /amount/ })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  );
+  await tableRegion.getByRole('button', { name: /^amount/ }).click();
+  await expect(tableRegion.getByRole('columnheader', { name: /amount/ })).toHaveAttribute(
+    'aria-sort',
+    'descending',
+  );
+  await expect(tableRegion.getByRole('table').first()).toContainText('beta');
+
+  // Refresh re-executes binding
+  await page.getByRole('button', { name: 'Refresh data' }).click();
+  await expect(tableRegion.getByRole('table').first()).toContainText('beta');
+
+  // change-answer control creates a new revision message leaving previous assistant immutable
+  const tierSelect = page.getByRole('combobox', { name: 'Tier' }).first();
+  await expect(tierSelect.locator('option', { hasText: 'Wholesale' })).toHaveCount(1);
+  await tierSelect.selectOption({ label: 'Wholesale' });
+  await expect(page.getByLabel('Assistant')).toHaveCount(2);
+  await expect(page.getByLabel('Assistant').first()).toContainText('beta');
+  await expect(page.getByLabel('Assistant').last()).toContainText('bulk-gamma');
+  await page.reload();
+  await expect(page.getByLabel('Assistant')).toHaveCount(2);
+  await expect(page.getByLabel('Assistant').last()).toContainText('bulk-gamma');
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
 });

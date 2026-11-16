@@ -28,19 +28,28 @@ export function createCsvFoundationBackend(
   database: string,
   mode: 'deepseek' | 'deterministic',
   override?: PlanningAgent,
+  options: {
+    workerId?: string;
+    leaseMs?: number;
+    multiWorker?: boolean;
+    retentionMs?: number;
+    now?: () => number;
+  } = {},
 ) {
+  const retentionMs = options.retentionMs ?? 24 * 60 * 60 * 1000;
   const catalog = registerCsvFoundation(
     registerBuiltins(new FoundationCatalog(csvFoundationPolicy)),
     repository,
   );
-  const snapshots = new SqliteControlSnapshotStore(database);
+  const snapshots = new SqliteControlSnapshotStore(database, options.now);
   const requestStore = new SqliteRequestJournal(database, {
     maxEvents: 100,
-    retentionMs: 24 * 60 * 60 * 1000,
+    retentionMs,
+    ...(options.now ? { now: options.now } : {}),
   });
   const messages = new SqliteConversationStore(requestStore.connectionForConversations());
-  // This reference host assumes exclusive ownership of the SQLite database during startup.
-  requestStore.interruptRunning();
+  if (options.multiWorker) requestStore.interruptStaleLeases();
+  else requestStore.interruptRunning();
   const identity = z.object({ id: z.string(), tenant: z.string() }).passthrough();
   const owner = (principal: Principal) => {
     const parsed = identity.safeParse(principal.context.csvIdentity);
@@ -97,10 +106,19 @@ export function createCsvFoundationBackend(
             ],
           }),
         });
-  const backend = new FoundationBackend(catalog, agent, controls, conversations, journal, policy);
+  const backend = new FoundationBackend(catalog, agent, controls, conversations, journal, policy, {
+    workerId: options.workerId,
+    leaseMs: options.leaseMs,
+  });
   return {
     backend,
     provider,
+    requestStore,
+    purgeRetention: () => ({
+      events: requestStore.purgeExpired(),
+      conversations: messages.purgeExpired(retentionMs, (options.now ?? Date.now)()),
+      snapshots: snapshots.purgeExpired(retentionMs),
+    }),
     close: () => {
       backend.shutdown();
       requestStore.close();

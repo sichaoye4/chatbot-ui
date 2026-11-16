@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store } from '../../packages/server-runtime/store.ts';
 import { ArtifactSchema, type Artifact } from '../../packages/contracts/index.ts';
+import { ConversationSnapshot, MaterializedResponse } from '../../packages/contracts/protocol.ts';
 import type { Principal } from '../../packages/catalog/index.ts';
 
 test('frozen v1 conversation restores original message revisions after process reopen', () => {
@@ -55,6 +56,10 @@ test('frozen v1 conversation restores original message revisions after process r
     );
     assert.equal(messages[0].visual.plan.panels.length, 1);
     assert.equal(messages[1].visual.plan.panels.length, 2);
+    // V1 serialized revisions and conversations are never reinterpreted as v2 wire payloads.
+    for (const revision of fixture.revisions)
+      assert.equal(MaterializedResponse.safeParse(revision).success, false);
+    assert.equal(ConversationSnapshot.safeParse(restored).success, false);
     assert.throws(() => store.conversation(id, { ...p, domains: [] }), /DATA_FORBIDDEN/);
     assert.throws(() => store.conversation(id, { ...p, tenant: 'other' }), /DATA_FORBIDDEN/);
   } finally {

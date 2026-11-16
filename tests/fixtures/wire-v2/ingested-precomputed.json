@@ -1,0 +1,128 @@
+{
+  "ingestedResponse": {
+    "protocolVersion": 2,
+    "messageId": "msg_ingested",
+    "responseId": "resp_ingested",
+    "revision": 1,
+    "generation": 0,
+    "plan": {
+      "schemaVersion": 2,
+      "capabilitySnapshotId": "catalog-35-a913b939",
+      "bindings": [
+        {
+          "id": "data",
+          "tool": {
+            "id": "commerce.revenue",
+            "version": 1
+          },
+          "args": {},
+          "fixedArgs": {
+            "period": [
+              "2024-01-01",
+              "2024-12-31"
+            ],
+            "region": null
+          }
+        }
+      ],
+      "facts": [],
+      "blocks": [
+        {
+          "id": "answer",
+          "kind": "visual",
+          "elements": [
+            {
+              "id": "values",
+              "component": {
+                "id": "ui.table",
+                "version": 1
+              },
+              "title": "Recorded results",
+              "roles": {
+                "columns": [
+                  {
+                    "bindingId": "data",
+                    "fieldId": "date"
+                  },
+                  {
+                    "bindingId": "data",
+                    "fieldId": "net"
+                  }
+                ]
+              },
+              "props": {}
+            }
+          ],
+          "controls": [],
+          "layoutIntent": "auto"
+        }
+      ]
+    },
+    "bindingDescriptors": [
+      {
+        "bindingId": "data",
+        "source": {
+          "id": "commerce.revenue",
+          "version": 1
+        },
+        "fields": [
+          {
+            "id": "date",
+            "label": "date",
+            "type": "date",
+            "role": "time",
+            "nullable": false,
+            "description": "Fixture field date",
+            "temporal": {
+              "timezone": "UTC",
+              "calendar": "gregorian",
+              "grain": "day"
+            }
+          },
+          {
+            "id": "net",
+            "label": "net",
+            "type": "number",
+            "role": "measure",
+            "nullable": false,
+            "unit": "currency:USD",
+            "description": "Fixture field net",
+            "measure": {
+              "aggregation": "tool-owned aggregate",
+              "precision": 2,
+              "additive": false
+            }
+          }
+        ],
+        "grain": "one row per day"
+      }
+    ],
+    "datasets": {
+      "data": {
+        "status": "ready",
+        "result": {
+          "rows": [
+            {
+              "date": "2024-01-01",
+              "net": 170
+            }
+          ],
+          "provenance": {
+            "sourceId": "synthetic-fixture",
+            "sourceVersion": "fixture-v1",
+            "queryId": "fixture-query",
+            "executedAt": "2026-11-14T00:00:00Z",
+            "grain": "one row per day",
+            "truncated": false,
+            "nextCursor": null,
+            "warnings": []
+          }
+        }
+      }
+    },
+    "facts": {},
+    "operations": [],
+    "status": "complete",
+    "diagnostics": []
+  }
+}

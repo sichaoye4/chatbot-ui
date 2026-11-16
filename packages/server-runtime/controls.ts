@@ -6,10 +6,12 @@ import {
   type Arguments,
   type CapabilityRef,
   type Control,
+  type DataResult,
   type Principal,
   type ResponsePlan,
 } from '../contracts/foundation.ts';
 import {
+  BackendAction,
   ControlChange,
   MaterializedResponse,
   OptionPage,
@@ -60,32 +62,53 @@ export class FoundationControlService {
     if (!snapshot) fail('DATA_FORBIDDEN', '', 'Response is unavailable');
     return snapshot;
   }
-  private async scopes(plan: ResponsePlan, principal: Principal, signal: AbortSignal) {
+  private async scopes(
+    plan: ResponsePlan,
+    principal: Principal,
+    signal: AbortSignal,
+    allowRestricted = false,
+  ) {
     const scopes: Record<string, string> = {};
     for (const binding of plan.bindings) {
       signal.throwIfAborted();
-      const tool = this.catalog.tool(binding.tool, principal);
+      const tool = allowRestricted
+        ? this.catalog.registeredTool(binding.tool, principal)
+        : this.catalog.tool(binding.tool, principal);
       const args = tool.args.parse({ ...binding.args, ...binding.fixedArgs });
-      scopes[binding.id] = (
-        await this.catalog.policy.authorize(tool.ref, args, principal)
-      ).scopeKey;
+      const auth = await this.catalog.policy.authorize(tool.ref, args, principal);
+      scopes[binding.id] = this.catalog.scopeIdentity(
+        auth.scopeKey,
+        tool.ref,
+        principal,
+        allowRestricted,
+      );
     }
     signal.throwIfAborted();
     return scopes;
   }
   private async authorize(snapshot: Snapshot, principal: Principal, signal: AbortSignal) {
-    this.catalog.validate(snapshot.response.plan, principal, snapshot.components);
-    const current = await this.scopes(snapshot.response.plan, principal, signal);
+    const current = await this.scopes(snapshot.response.plan, principal, signal, true);
     if (JSON.stringify(current) !== JSON.stringify(snapshot.scopes))
       fail('DATA_FORBIDDEN', '', 'Response authorization changed');
+    this.catalog.validate(snapshot.response.plan, principal, snapshot.components);
   }
   private actionable(control: Control, plan: ResponsePlan, principal: Principal) {
     if (
-      control.scopeMode !== 'within-answer' ||
+      !['within-answer', 'change-answer'].includes(control.scopeMode) ||
       control.control.version !== 1 ||
       !['ui.select', 'ui.multiSelect', 'ui.dateRange'].includes(control.control.id)
     )
       return false;
+    const targetsFullProjection = control.targets.every((target) => {
+      const binding = plan.bindings.find((item) => item.id === target.bindingId)!;
+      try {
+        const tool = this.catalog.tool(binding.tool, principal);
+        return this.catalog.fields(binding.tool, principal).length === tool.fields.length;
+      } catch {
+        return false;
+      }
+    });
+    if (!targetsFullProjection) return false;
     if (control.control.id === 'ui.dateRange') return true;
     return control.targets.every((target) => {
       const binding = plan.bindings.find((item) => item.id === target.bindingId)!;
@@ -99,6 +122,90 @@ export class FoundationControlService {
         return false;
       }
     });
+  }
+  private operationsFor(
+    response: MaterializedResponse,
+    enableControls: boolean,
+    principal: Principal,
+  ): CapabilityRef[] {
+    if (!enableControls) return [];
+    if (response.status === 'partial') {
+      try {
+        this.catalog.action(RETRY, principal);
+        return [RETRY];
+      } catch {
+        return [];
+      }
+    }
+    if (response.status !== 'complete') return [];
+    const ops: CapabilityRef[] = [];
+    for (const action of this.catalog.registeredActions(principal)) {
+      if (action.ref.id === RETRY.id && action.ref.version === RETRY.version) continue;
+      if (action.ref.id === SET_CONTROL.id && action.ref.version === SET_CONTROL.version) {
+        if (
+          controls(response.plan).some((control) =>
+            this.actionable(control, response.plan, principal),
+          )
+        )
+          ops.push(action.ref);
+        continue;
+      }
+      if (!action.eligible || action.eligible(response.plan, principal, this.catalog)) {
+        ops.push(action.ref);
+      }
+    }
+    return ops;
+  }
+  private invalidateBindingCursor(binding: ResponsePlan['bindings'][number], principal: Principal) {
+    const tool = this.catalog.tool(binding.tool, principal);
+    if (tool.pagination?.cursorArg) {
+      delete binding.args[tool.pagination.cursorArg];
+      delete binding.fixedArgs[tool.pagination.cursorArg];
+    }
+  }
+  private async runWithIdempotency(
+    responseId: string,
+    idempotencyKey: string,
+    fingerprint: string,
+    principal: Principal,
+    signal: AbortSignal,
+    work: (owner: string) => Promise<Snapshot>,
+  ) {
+    const current = this.getCurrent(principal, responseId);
+    await this.authorize(current, principal, signal);
+    const owner = this.owner(principal);
+    const requestKey = JSON.stringify([owner, idempotencyKey]);
+    const stored = this.store.request(owner, idempotencyKey);
+    if (stored) {
+      if (stored.fingerprint !== fingerprint)
+        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
+      await this.authorize(stored.snapshot, principal, signal);
+      return structuredClone(stored.snapshot.response);
+    }
+    const existing = this.requests.get(requestKey);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint)
+        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
+      const snapshot = await existing.result;
+      await this.authorize(snapshot, principal, signal);
+      return structuredClone(snapshot.response);
+    }
+    const result = work(owner);
+    this.requests.set(requestKey, { fingerprint, result });
+    try {
+      const snapshot = await result;
+      return structuredClone(snapshot.response);
+    } catch (error) {
+      this.requests.delete(requestKey);
+      const committed = this.store.request(owner, idempotencyKey);
+      if (committed) {
+        if (committed.fingerprint !== fingerprint)
+          fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
+        await this.authorize(committed.snapshot, principal, signal);
+        return structuredClone(committed.snapshot.response);
+      }
+      throw error;
+    }
   }
   /** Host explicitly opts an executable source into interaction; static imports remain read-only by default. */
   async attach(
@@ -144,16 +251,7 @@ export class FoundationControlService {
     const snapshot: Snapshot = {
       response: {
         ...checked,
-        operations:
-          checked.status === 'partial' && options.enableControls
-            ? [RETRY]
-            : checked.status === 'complete' &&
-                options.enableControls &&
-                controls(checked.plan).some((control) =>
-                  this.actionable(control, checked.plan, principal),
-                )
-              ? [SET_CONTROL]
-              : [],
+        operations: this.operationsFor(checked, options.enableControls, principal),
       },
       scopes: scopesAfter,
       components: options.components && structuredClone(options.components),
@@ -212,6 +310,12 @@ export class FoundationControlService {
   ) {
     const binding = plan.bindings.find((item) => item.id === target.bindingId)!;
     const tool = this.catalog.tool(binding.tool, principal);
+    if (this.catalog.fields(tool.ref, principal).length !== tool.fields.length)
+      fail(
+        'CAPABILITY_UNAVAILABLE',
+        control.id,
+        'Controls are unavailable for a restricted projection',
+      );
     const capability = tool.interactive[target.argument];
     if (!capability?.options) fail('CAPABILITY_UNAVAILABLE', control.id, 'Options are unavailable');
     const resolver = this.catalog.optionResolver(capability.options, principal);
@@ -219,9 +323,19 @@ export class FoundationControlService {
     const scopeArgs = { ...args };
     delete scopeArgs[target.argument];
     const toolAuth = await this.catalog.policy.authorize(tool.ref, args, principal);
+    const toolScope = this.catalog.scopeIdentity(toolAuth.scopeKey, tool.ref, principal, true);
     const optionAuth = await this.catalog.policy.authorize(resolver.ref, args, principal);
     signal.throwIfAborted();
-    return { tool, resolver, args, scopeArgs, toolAuth, optionAuth, argument: target.argument };
+    return {
+      tool,
+      resolver,
+      args,
+      scopeArgs,
+      toolAuth,
+      toolScope,
+      optionAuth,
+      argument: target.argument,
+    };
   }
   private async recheckTarget(
     target: Awaited<ReturnType<FoundationControlService['target']>>,
@@ -229,6 +343,12 @@ export class FoundationControlService {
     signal: AbortSignal,
   ) {
     const toolAuth = await this.catalog.policy.authorize(target.tool.ref, target.args, principal);
+    const toolScope = this.catalog.scopeIdentity(
+      toolAuth.scopeKey,
+      target.tool.ref,
+      principal,
+      true,
+    );
     const optionAuth = await this.catalog.policy.authorize(
       target.resolver.ref,
       target.args,
@@ -236,6 +356,7 @@ export class FoundationControlService {
     );
     signal.throwIfAborted();
     if (
+      toolScope !== target.toolScope ||
       toolAuth.scopeKey !== target.toolAuth.scopeKey ||
       optionAuth.scopeKey !== target.optionAuth.scopeKey
     )
@@ -297,9 +418,30 @@ export class FoundationControlService {
     await this.current(principal, input, signal);
     return OptionPage.parse(output);
   }
-  private async validateSelections(plan: ResponsePlan, principal: Principal, signal: AbortSignal) {
-    for (const control of controls(plan)) {
-      this.catalog.control(control.control, principal).value.parse(control.initialValue);
+  private async validateSelections(
+    plan: ResponsePlan,
+    principal: Principal,
+    signal: AbortSignal,
+    changedControlId?: string,
+    diagnostics: MaterializedResponse['diagnostics'] = [],
+  ) {
+    const all = controls(plan);
+    const ordered: Control[] = [];
+    const seen = new Set<string>();
+    const visit = (c: Control) => {
+      if (seen.has(c.id)) return;
+      seen.add(c.id);
+      for (const dep of c.dependsOn) {
+        const parent = all.find((item) => item.id === dep);
+        if (parent) visit(parent);
+      }
+      ordered.push(c);
+    };
+    for (const c of all) visit(c);
+
+    for (const control of ordered) {
+      const reg = this.catalog.control(control.control, principal);
+      reg.value.parse(control.initialValue);
       if (!['ui.select', 'ui.multiSelect'].includes(control.control.id)) continue;
       const values =
         control.initialValue === null
@@ -307,6 +449,7 @@ export class FoundationControlService {
           : Array.isArray(control.initialValue)
             ? control.initialValue
             : [control.initialValue];
+      let valid = true;
       for (const item of control.targets) {
         const target = await this.target(control, plan, item, principal, signal);
         for (const value of values) {
@@ -319,89 +462,119 @@ export class FoundationControlService {
               context: target.optionAuth.context,
               signal,
             }))
-          )
-            fail('SCOPE_CONFLICT', control.id, 'Selection is unavailable in the current scope');
+          ) {
+            valid = false;
+            break;
+          }
         }
         await this.recheckTarget(target, principal, signal);
+        if (!valid) break;
+      }
+      if (!valid) {
+        const changedControl = all.find((item) => item.id === changedControlId);
+        const resetAllowed =
+          control.id !== changedControlId &&
+          (control.dependentPolicy === 'reset' ||
+            (control.dependentPolicy !== 'reject' && changedControl?.dependentPolicy === 'reset'));
+        if (!resetAllowed)
+          fail('SCOPE_CONFLICT', control.id, 'Selection is unavailable in the current scope');
+        if (!reg.value.safeParse(null).success)
+          fail('SCOPE_CONFLICT', control.id, 'Dependent selection cannot be reset');
+        control.initialValue = null;
+        for (const item of control.targets) {
+          const binding = plan.bindings.find((b) => b.id === item.bindingId)!;
+          const tool = this.catalog.tool(binding.tool, principal);
+          if (
+            Object.hasOwn(binding.fixedArgs, item.argument) &&
+            control.scopeMode !== 'change-answer'
+          )
+            fail('SCOPE_CONFLICT', control.id, 'Fixed answer scope cannot be edited');
+          if (Object.hasOwn(binding.fixedArgs, item.argument))
+            binding.fixedArgs[item.argument] = null;
+          else binding.args[item.argument] = null;
+          if (!tool.args.safeParse({ ...binding.args, ...binding.fixedArgs }).success)
+            fail('SCOPE_CONFLICT', control.id, 'Dependent selection cannot be reset');
+          this.invalidateBindingCursor(binding, principal);
+        }
+        diagnostics.push({
+          code: 'SCOPE_CONFLICT',
+          targetId: control.id,
+          message: `Reset "${control.label}" because the previous selection is unavailable in the updated scope.`,
+          retryable: false,
+        });
       }
     }
+    return diagnostics;
   }
   async change(raw: unknown, principal: Principal, signal: AbortSignal) {
     const input = ControlChange.parse(raw);
-    const current = this.getCurrent(principal, input.responseId);
-    await this.authorize(current, principal, signal);
-    const owner = this.owner(principal);
-    const requestKey = JSON.stringify([owner, input.idempotencyKey]);
     const fingerprint = JSON.stringify(input);
-    const stored = this.store.request(owner, input.idempotencyKey);
-    if (stored) {
-      if (stored.fingerprint !== fingerprint)
-        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-      await this.authorize(stored.snapshot, principal, signal);
-      return structuredClone(stored.snapshot.response);
-    }
-    const existing = this.requests.get(requestKey);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint)
-        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-      const snapshot = await existing.result;
-      await this.authorize(snapshot, principal, signal);
-      return structuredClone(snapshot.response);
-    }
-    const result = this.apply(input, principal, signal, owner, fingerprint);
-    this.requests.set(requestKey, { fingerprint, result });
-    try {
-      const snapshot = await result;
-      return structuredClone(snapshot.response);
-    } catch (error) {
-      this.requests.delete(requestKey);
-      // Another coordinator may have committed this key between our first lookup and CAS.
-      const committed = this.store.request(owner, input.idempotencyKey);
-      if (committed) {
-        if (committed.fingerprint !== fingerprint)
-          fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-        await this.authorize(committed.snapshot, principal, signal);
-        return structuredClone(committed.snapshot.response);
-      }
-      throw error;
-    }
+    return this.runWithIdempotency(
+      input.responseId,
+      input.idempotencyKey,
+      fingerprint,
+      principal,
+      signal,
+      (owner) => this.apply(input, principal, signal, owner, fingerprint),
+    );
   }
-  /** Retry exactly one failed binding. Existing successful data remains an immutable snapshot. */
   async retry(raw: unknown, principal: Principal, signal: AbortSignal) {
     const input = Retry.parse(raw);
-    const owner = this.owner(principal);
-    const fingerprint = JSON.stringify({ action: RETRY, ...input });
-    const previous = this.store.request(owner, input.idempotencyKey);
-    if (previous) {
-      if (previous.fingerprint !== fingerprint)
-        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-      await this.authorize(previous.snapshot, principal, signal);
-      return structuredClone(previous.snapshot.response);
+    const fingerprint = JSON.stringify(input);
+    return this.runWithIdempotency(
+      input.responseId,
+      input.idempotencyKey,
+      fingerprint,
+      principal,
+      signal,
+      (owner) => this.applyRetry(input, principal, signal, owner, fingerprint),
+    );
+  }
+  async performAction(raw: unknown, principal: Principal, signal: AbortSignal) {
+    const input = BackendAction.parse(raw);
+    const actionReg = this.catalog.action(input.action, principal);
+    actionReg.payload.parse(input.payload);
+    const fingerprint = JSON.stringify(input);
+    return this.runWithIdempotency(
+      input.responseId,
+      input.idempotencyKey,
+      fingerprint,
+      principal,
+      signal,
+      (owner) =>
+        this.applyRegisteredAction(input, actionReg, principal, signal, owner, fingerprint),
+    );
+  }
+  private async executeBindings(
+    plan: ResponsePlan,
+    targetBindingIds: string[],
+    existingDatasets: MaterializedResponse['datasets'],
+    principal: Principal,
+    signal: AbortSignal,
+  ) {
+    const targetSet = new Set(targetBindingIds);
+    const supplied: Record<string, DataResult> = Object.fromEntries(
+      Object.entries(existingDatasets).flatMap(([id, state]) =>
+        !targetSet.has(id) && state.status === 'ready' ? [[id, state.result]] : [],
+      ),
+    );
+    for (const binding of plan.bindings) {
+      if (!targetSet.has(binding.id)) continue;
+      signal.throwIfAborted();
+      const tool = this.catalog.tool(binding.tool, principal);
+      const args = tool.args.parse({ ...binding.args, ...binding.fixedArgs });
+      const before = await this.catalog.policy.authorize(tool.ref, args, principal);
+      const beforeScope = this.catalog.scopeIdentity(before.scopeKey, tool.ref, principal);
+      signal.throwIfAborted();
+      const result = await tool.execute(args, before.context, signal);
+      signal.throwIfAborted();
+      const after = await this.catalog.policy.authorize(tool.ref, args, principal);
+      const afterScope = this.catalog.scopeIdentity(after.scopeKey, tool.ref, principal, true);
+      if (beforeScope !== afterScope)
+        fail('DATA_FORBIDDEN', binding.id, 'Authorization changed during action execution');
+      supplied[binding.id] = this.catalog.validateResult(tool.ref, result, principal);
     }
-    const requestKey = JSON.stringify([owner, input.idempotencyKey]);
-    const existing = this.requests.get(requestKey);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint)
-        fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-      const snapshot = await existing.result;
-      await this.authorize(snapshot, principal, signal);
-      return structuredClone(snapshot.response);
-    }
-    const result = this.applyRetry(input, principal, signal, owner, fingerprint);
-    this.requests.set(requestKey, { fingerprint, result });
-    try {
-      return structuredClone((await result).response);
-    } catch (error) {
-      this.requests.delete(requestKey);
-      const committed = this.store.request(owner, input.idempotencyKey);
-      if (committed) {
-        if (committed.fingerprint !== fingerprint)
-          fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
-        await this.authorize(committed.snapshot, principal, signal);
-        return structuredClone(committed.snapshot.response);
-      }
-      throw error;
-    }
+    return supplied;
   }
   private async applyRetry(
     input: z.infer<typeof Retry>,
@@ -423,11 +596,13 @@ export class FoundationControlService {
     const tool = this.catalog.tool(binding.tool, principal);
     const args = tool.args.parse({ ...binding.args, ...binding.fixedArgs });
     const before = await this.catalog.policy.authorize(tool.ref, args, principal);
+    const beforeScope = this.catalog.scopeIdentity(before.scopeKey, tool.ref, principal);
     signal.throwIfAborted();
     const result = await tool.execute(args, before.context, signal);
     signal.throwIfAborted();
     const after = await this.catalog.policy.authorize(tool.ref, args, principal);
-    if (before.scopeKey !== after.scopeKey || before.scopeKey !== base.scopes[input.bindingId])
+    const afterScope = this.catalog.scopeIdentity(after.scopeKey, tool.ref, principal, true);
+    if (beforeScope !== afterScope || beforeScope !== base.scopes[input.bindingId])
       fail('DATA_FORBIDDEN', input.bindingId, 'Authorization changed during retry');
     const supplied = Object.fromEntries(
       Object.entries(base.response.datasets).flatMap(([id, state]) =>
@@ -456,14 +631,7 @@ export class FoundationControlService {
     const scopes = await this.scopes(response.plan, principal, signal);
     if (JSON.stringify(scopes) !== JSON.stringify(base.scopes))
       fail('DATA_FORBIDDEN', '', 'Authorization changed during retry');
-    response.operations =
-      response.status === 'partial'
-        ? [RETRY]
-        : controls(response.plan).some((control) =>
-              this.actionable(control, response.plan, principal),
-            )
-          ? [SET_CONTROL]
-          : [];
+    response.operations = this.operationsFor(response, true, principal);
     signal.throwIfAborted();
     const committed = this.store.commit({
       owner,
@@ -476,6 +644,151 @@ export class FoundationControlService {
     });
     if (committed.kind === 'conflict')
       fail('REVISION_CONFLICT', '', 'Response changed during retry');
+    if (committed.kind === 'idempotency-conflict')
+      fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
+    if (committed.kind === 'replayed') await this.authorize(committed.snapshot, principal, signal);
+    return committed.snapshot;
+  }
+  private async applyRegisteredAction(
+    input: z.infer<typeof BackendAction>,
+    actionReg: ReturnType<FoundationCatalog['action']>,
+    principal: Principal,
+    signal: AbortSignal,
+    owner: string,
+    fingerprint: string,
+  ): Promise<Snapshot> {
+    const base = await this.current(principal, input, signal);
+    if (
+      !base.response.operations.some(
+        (operation) =>
+          operation.id === input.action.id && operation.version === input.action.version,
+      )
+    )
+      fail('CAPABILITY_UNAVAILABLE', input.action.id, 'Action is unavailable on this response');
+    const plan = structuredClone(base.response.plan);
+    let targetBindingIds: string[] = [];
+    let extraSupplied: Record<string, DataResult> = {};
+    const diagnostics: MaterializedResponse['diagnostics'] = [];
+
+    if (input.action.id === 'ui.sort' && input.action.version === 1) {
+      const { bindingId, fieldId, direction } = input.payload as {
+        bindingId: string;
+        fieldId: string;
+        direction: 'asc' | 'desc';
+      };
+      const binding = plan.bindings.find((item) => item.id === bindingId);
+      if (!binding) fail('CAPABILITY_UNAVAILABLE', bindingId, 'Unknown binding');
+      const tool = this.catalog.tool(binding.tool, principal);
+      if (!tool.sorting) fail('CAPABILITY_UNAVAILABLE', bindingId, 'Sorting is unavailable');
+      const visibleFields = this.catalog.fields(binding.tool, principal).map((f) => f.id);
+      const allowedSortFields = (tool.sorting.fields ?? visibleFields).filter((id) =>
+        visibleFields.includes(id),
+      );
+      if (!allowedSortFields.includes(fieldId))
+        fail('SEMANTIC_INVALID', fieldId, 'Field cannot be sorted');
+      if (
+        Object.hasOwn(binding.fixedArgs, tool.sorting.fieldArg) ||
+        Object.hasOwn(binding.fixedArgs, tool.sorting.directionArg)
+      )
+        fail('SCOPE_CONFLICT', bindingId, 'Fixed sort scope cannot be edited');
+      binding.args[tool.sorting.fieldArg] = fieldId;
+      binding.args[tool.sorting.directionArg] = direction;
+      this.invalidateBindingCursor(binding, principal);
+      targetBindingIds = [bindingId];
+    } else if (input.action.id === 'ui.paginate' && input.action.version === 1) {
+      const { bindingId, cursor } = input.payload as {
+        bindingId: string;
+        cursor: string | null;
+      };
+      const binding = plan.bindings.find((item) => item.id === bindingId);
+      if (!binding) fail('CAPABILITY_UNAVAILABLE', bindingId, 'Unknown binding');
+      const tool = this.catalog.tool(binding.tool, principal);
+      if (!tool.pagination) fail('CAPABILITY_UNAVAILABLE', bindingId, 'Pagination is unavailable');
+      if (Object.hasOwn(binding.fixedArgs, tool.pagination.cursorArg))
+        fail('SCOPE_CONFLICT', bindingId, 'Fixed pagination scope cannot be edited');
+      if (cursor === null) delete binding.args[tool.pagination.cursorArg];
+      else binding.args[tool.pagination.cursorArg] = cursor;
+      targetBindingIds = [bindingId];
+    } else if (input.action.id === 'ui.refresh' && input.action.version === 1) {
+      const { bindingId } = input.payload as { bindingId?: string };
+      if (bindingId) {
+        const binding = plan.bindings.find((item) => item.id === bindingId);
+        if (!binding || this.catalog.tool(binding.tool, principal).refreshable !== true)
+          fail('CAPABILITY_UNAVAILABLE', bindingId, 'Refresh is unavailable for this source');
+        targetBindingIds = [bindingId];
+      } else {
+        targetBindingIds = plan.bindings
+          .filter((binding) => this.catalog.tool(binding.tool, principal).refreshable === true)
+          .map((binding) => binding.id);
+        if (!targetBindingIds.length)
+          fail('CAPABILITY_UNAVAILABLE', '', 'Refresh is unavailable on this response');
+      }
+    } else if (actionReg.execute) {
+      const custom = await actionReg.execute({
+        payload: input.payload,
+        plan,
+        datasets: base.response.datasets,
+        principal,
+        signal,
+        catalog: this.catalog,
+      });
+      if (custom.plan) plan.bindings = structuredClone(custom.plan.bindings);
+      if (custom.plan) plan.blocks = structuredClone(custom.plan.blocks);
+      if (custom.plan) plan.facts = structuredClone(custom.plan.facts);
+      if (custom.targetBindings) targetBindingIds = custom.targetBindings;
+      if (custom.datasets) extraSupplied = custom.datasets;
+      if (custom.diagnostics) diagnostics.push(...custom.diagnostics);
+    } else {
+      fail('CAPABILITY_UNAVAILABLE', input.action.id, 'Action handler is unavailable');
+    }
+
+    const validated = this.catalog.validate(plan, principal, base.components);
+    await this.validateSelections(validated, principal, signal, undefined, diagnostics);
+    const scopeBefore = await this.scopes(validated, principal, signal);
+    const executed = await this.executeBindings(
+      validated,
+      targetBindingIds,
+      base.response.datasets,
+      principal,
+      signal,
+    );
+    const supplied = { ...executed, ...extraSupplied };
+    const next = await this.runtime.ingest(
+      validated,
+      supplied,
+      principal,
+      signal,
+      {
+        messageId: base.response.messageId,
+        responseId: base.response.responseId,
+        revision: base.response.revision,
+        generation: base.response.generation + 1,
+      },
+      base.components,
+    );
+    const scopeAfter = await this.scopes(validated, principal, signal);
+    if (JSON.stringify(scopeBefore) !== JSON.stringify(scopeAfter))
+      fail('DATA_FORBIDDEN', '', 'Authorization changed while executing action');
+    await this.authorize(base, principal, signal);
+    signal.throwIfAborted();
+    next.diagnostics = [...next.diagnostics, ...diagnostics];
+    next.operations = this.operationsFor(next, true, principal);
+    const snapshot: Snapshot = {
+      response: next,
+      scopes: scopeAfter,
+      components: base.components,
+    };
+    const committed = this.store.commit({
+      owner,
+      responseId: input.responseId,
+      baseRevision: input.revision,
+      baseGeneration: input.generation,
+      idempotencyKey: input.idempotencyKey,
+      fingerprint,
+      snapshot,
+    });
+    if (committed.kind === 'conflict')
+      fail('REVISION_CONFLICT', '', 'Response changed during execution');
     if (committed.kind === 'idempotency-conflict')
       fail('IDEMPOTENCY_CONFLICT', '', 'Idempotency key was used for another request');
     if (committed.kind === 'replayed') await this.authorize(committed.snapshot, principal, signal);
@@ -498,8 +811,11 @@ export class FoundationControlService {
       fail('CAPABILITY_UNAVAILABLE', '', 'This response is read-only');
     const plan = structuredClone(base.response.plan);
     const control = this.findControl(plan, input.controlId);
-    if (control.scopeMode !== 'within-answer' || input.newMessageId)
-      fail('CAPABILITY_UNAVAILABLE', control.id, 'Changing answer scope requires a new answer');
+    const isScopeChange = control.scopeMode === 'change-answer';
+    if (!isScopeChange && input.newMessageId)
+      fail('SCOPE_CONFLICT', control.id, 'Within-answer controls update the existing message');
+    if (isScopeChange && !input.newMessageId)
+      fail('CAPABILITY_UNAVAILABLE', control.id, 'Changing answer scope requires a new message ID');
     if (!this.actionable(control, plan, principal))
       fail('CAPABILITY_UNAVAILABLE', control.id, 'This control is unavailable');
     const registration = this.catalog.control(control.control, principal);
@@ -508,25 +824,36 @@ export class FoundationControlService {
     control.initialValue = input.value;
     for (const target of control.targets) {
       const binding = plan.bindings.find((item) => item.id === target.bindingId)!;
-      if (Object.hasOwn(binding.fixedArgs, target.argument))
+      if (!isScopeChange && Object.hasOwn(binding.fixedArgs, target.argument))
         fail('SCOPE_CONFLICT', control.id, 'Fixed answer scope cannot be edited');
-      binding.args[target.argument] = input.value;
+      if (Object.hasOwn(binding.fixedArgs, target.argument))
+        binding.fixedArgs[target.argument] = input.value;
+      else binding.args[target.argument] = input.value;
+      this.invalidateBindingCursor(binding, principal);
     }
     const validated = this.catalog.validate(plan, principal, base.components);
-    await this.validateSelections(validated, principal, signal);
+    const diagnostics = await this.validateSelections(validated, principal, signal, control.id, []);
     const scopeBefore = await this.scopes(validated, principal, signal);
     const result = await this.runtime.execute(validated, principal, signal, base.components);
+    const targetIdentity = isScopeChange
+      ? {
+          messageId: input.newMessageId!,
+          responseId: `response${crypto.randomUUID().replaceAll('-', '')}`,
+          revision: base.response.revision + 1,
+          generation: 0,
+        }
+      : {
+          messageId: base.response.messageId,
+          responseId: base.response.responseId,
+          revision: base.response.revision,
+          generation: base.response.generation + 1,
+        };
     const next = await this.runtime.ingest(
       validated,
       result.datasets,
       principal,
       signal,
-      {
-        messageId: base.response.messageId,
-        responseId: base.response.responseId,
-        revision: base.response.revision,
-        generation: base.response.generation + 1,
-      },
+      targetIdentity,
       base.components,
     );
     const scopeAfter = await this.scopes(validated, principal, signal);
@@ -534,8 +861,10 @@ export class FoundationControlService {
       fail('DATA_FORBIDDEN', '', 'Authorization changed while updating response');
     await this.authorize(base, principal, signal);
     signal.throwIfAborted();
+    next.diagnostics = [...next.diagnostics, ...diagnostics];
+    next.operations = this.operationsFor(next, true, principal);
     const snapshot: Snapshot = {
-      response: { ...next, operations: base.response.operations },
+      response: next,
       scopes: scopeAfter,
       components: base.components,
     };

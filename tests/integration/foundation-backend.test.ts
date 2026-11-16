@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
@@ -19,7 +20,11 @@ import {
 } from '../../packages/server-runtime/authorized-journal.ts';
 import { FoundationBackend } from '../../packages/server-runtime/backend.ts';
 import { FoundationRuntime } from '../../packages/server-runtime/foundation.ts';
-import { FoundationError, type PlanningAgent } from '../../packages/contracts/foundation.ts';
+import {
+  FoundationError,
+  type PlanningAgent,
+  type ResponsePlan,
+} from '../../packages/contracts/foundation.ts';
 import { ResponseRenderer } from '../../packages/renderer-openui/foundation.tsx';
 import { builtinRegistry } from '../../packages/renderer-openui/builtins.tsx';
 import { domains, permissivePolicy, plan, principal } from '../fixtures/foundation-domains.ts';
@@ -313,7 +318,14 @@ test('backend commits and replays a conversation and action across SQLite restar
     const events = await collect(host.backend.turn(input, principal, signal()));
     assert.deepEqual(
       events.map((item) => item.type),
-      ['request.started', 'response.committed', 'request.completed'],
+      [
+        'request.started',
+        'plan.accepted',
+        'binding.pending',
+        'binding.ready',
+        'response.committed',
+        'request.completed',
+      ],
     );
     const committed = events.find((item) => item.type === 'response.committed');
     if (!committed || committed.type !== 'response.committed') throw new Error('Missing response');
@@ -548,5 +560,250 @@ test('clarification choices are verified against an authorized response and reac
     assert.equal(calls, 2);
   } finally {
     host.close();
+  }
+});
+
+test('multi-binding sequential retry recovers independent failures without re-executing healthy bindings', async () => {
+  let failOps = true;
+  let failAudit = true;
+  let goodCalls = 0;
+  const c = registerBuiltins(new FoundationCatalog(permissivePolicy));
+  c.registerDomain({
+    ...domains[1],
+    tools: [
+      {
+        ...domains[1].tools[0],
+        execute: async (...args) => {
+          goodCalls++;
+          return domains[1].tools[0].execute(...args);
+        },
+      },
+    ],
+  });
+  c.registerDomain({
+    ...domains[0],
+    tools: [
+      {
+        ...domains[0].tools[0],
+        execute: async () => {
+          if (failOps) throw new Error('ops down');
+          return domains[0].tools[0].execute({ area: 'north', region: null }, {}, signal());
+        },
+      },
+    ],
+  });
+  c.registerDomain({
+    ref: { id: 'audit.domain', version: 1 },
+    description: 'Audit domain',
+    semantics: ['Audit'],
+    tools: [
+      {
+        ref: { id: 'audit.check', version: 1 },
+        description: 'Audit check',
+        args: z.strictObject({}),
+        fields: [
+          {
+            id: 'checks',
+            label: 'Checks',
+            description: 'Audit check count',
+            type: 'number',
+            role: 'measure',
+            nullable: false,
+            unit: 'count',
+            measure: { aggregation: 'count', precision: 0, additive: true },
+          },
+        ],
+        grain: 'one row per audit summary',
+        interactive: {},
+        execute: async () => {
+          if (failAudit) throw new Error('audit down');
+          return {
+            rows: [{ checks: 9 }],
+            provenance: {
+              sourceId: 'audit',
+              sourceVersion: 'v1',
+              queryId: 'qa',
+              executedAt: new Date().toISOString(),
+              sourceAsOf: new Date().toISOString(),
+              grain: 'one row per audit summary',
+              truncated: false,
+              nextCursor: null,
+              warnings: [],
+            },
+          };
+        },
+      },
+    ],
+  });
+  const candidate = plan(c);
+  candidate.bindings.push(
+    {
+      id: 'ops',
+      tool: domains[0].tools[0].ref,
+      args: {},
+      fixedArgs: { area: 'north', region: null },
+    },
+    { id: 'audit', tool: { id: 'audit.check', version: 1 }, args: {}, fixedArgs: {} },
+  );
+  const visual = candidate.blocks[0];
+  if (visual.kind !== 'visual') throw new Error('Expected visual');
+  visual.elements.push(
+    {
+      id: 'opsTbl',
+      component: { id: 'ui.table', version: 1 },
+      title: 'Ops',
+      roles: { columns: [{ bindingId: 'ops', fieldId: 'score' }] },
+      props: {},
+    },
+    {
+      id: 'auditTbl',
+      component: { id: 'ui.table', version: 1 },
+      title: 'Audit',
+      roles: { columns: [{ bindingId: 'audit', fieldId: 'checks' }] },
+      props: {},
+    },
+  );
+  const host = create(':memory:', c, { propose: async () => candidate }, () => 1);
+  try {
+    const initialEvents = await collect(
+      host.backend.turn(
+        {
+          conversationId: 'multi1',
+          messageId: 'msg1',
+          text: 'Show all',
+          idempotencyKey: 'turn_multi',
+          components: host.backend.negotiate(principal).components,
+          previous: [],
+        },
+        principal,
+        signal(),
+      ),
+    );
+    const r0 = initialEvents.find((e) => e.type === 'response.committed');
+    assert.ok(r0?.type === 'response.committed');
+    assert.equal(r0.response.status, 'partial');
+    assert.equal(r0.response.datasets.ops.status, 'failed');
+    assert.equal(r0.response.datasets.audit.status, 'failed');
+    assert.equal(goodCalls, 1);
+
+    failOps = false;
+    const retryOpsEvents = await collect(
+      host.backend.action(
+        {
+          responseId: r0.response.responseId,
+          revision: 1,
+          generation: 0,
+          action: { id: 'ui.retryBinding', version: 1 },
+          payload: { bindingId: 'ops' },
+          idempotencyKey: 'retry_ops',
+        },
+        principal,
+        signal(),
+      ),
+    );
+    const r1 = retryOpsEvents.find((e) => e.type === 'response.committed');
+    assert.ok(r1?.type === 'response.committed');
+    assert.equal(r1.response.status, 'partial');
+    assert.equal(r1.response.datasets.ops.status, 'ready');
+    assert.equal(r1.response.datasets.audit.status, 'failed');
+    assert.equal(goodCalls, 1);
+
+    failAudit = false;
+    const retryAuditEvents = await collect(
+      host.backend.action(
+        {
+          responseId: r1.response.responseId,
+          revision: 1,
+          generation: 1,
+          action: { id: 'ui.retryBinding', version: 1 },
+          payload: { bindingId: 'audit' },
+          idempotencyKey: 'retry_audit',
+        },
+        principal,
+        signal(),
+      ),
+    );
+    const r2 = retryAuditEvents.find((e) => e.type === 'response.committed');
+    assert.ok(r2?.type === 'response.committed');
+    assert.equal(r2.response.status, 'complete');
+    assert.equal(r2.response.generation, 2);
+    assert.equal(goodCalls, 1);
+  } finally {
+    host.close();
+  }
+});
+
+test('change-answer control action persists new message and immutable revision across SQLite restart', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'foundation-scope-'));
+  const path = join(directory, 'scope.sqlite');
+  const buildCatalog = () => fixtureCatalog();
+  let c = buildCatalog();
+  const basePlan = proposal(c);
+  const scopePlan: ResponsePlan = {
+    ...basePlan,
+    blocks: basePlan.blocks.map((block) =>
+      block.kind === 'visual'
+        ? {
+            ...block,
+            controls: block.controls.map((ctrl) => ({
+              ...ctrl,
+              scopeMode: 'change-answer' as const,
+            })),
+          }
+        : block,
+    ),
+  };
+  let host = create(path, c, { propose: async () => scopePlan }, () => 1);
+  try {
+    const turnEvents = await collect(
+      host.backend.turn(
+        {
+          conversationId: 'conv_scope',
+          messageId: 'm1',
+          text: 'Initial view',
+          idempotencyKey: 't1',
+          components: host.backend.negotiate(principal).components,
+          previous: [],
+        },
+        principal,
+        signal(),
+      ),
+    );
+    const committed0 = turnEvents.find((e) => e.type === 'response.committed');
+    assert.ok(committed0?.type === 'response.committed');
+    const actionEvents = await collect(
+      host.backend.action(
+        {
+          responseId: committed0.response.responseId,
+          revision: 1,
+          generation: 0,
+          action: { id: 'ui.setControl', version: 1 },
+          payload: { controlId: 'region', value: 'east', newMessageId: 'm2', userMessageId: 'u2' },
+          idempotencyKey: 'scope_change_1',
+        },
+        principal,
+        signal(),
+      ),
+    );
+    const committed1 = actionEvents.find((e) => e.type === 'response.committed');
+    assert.ok(committed1?.type === 'response.committed');
+    assert.notEqual(committed1.response.responseId, committed0.response.responseId);
+    assert.equal(committed1.response.revision, 2);
+    assert.equal(committed1.response.generation, 0);
+    assert.equal(committed1.response.messageId, 'm2');
+
+    host.close();
+    c = buildCatalog();
+    host = create(path, c, { propose: async () => scopePlan }, () => 1);
+    const restored = await host.backend.history('conv_scope', principal, signal());
+    assert.equal(restored.messages.length, 4);
+    assert.equal(restored.messages[1].response?.revision, 1);
+    assert.equal(restored.messages[2].role, 'user');
+    assert.equal(restored.messages[2].id, 'u2');
+    assert.equal(restored.messages[3].response?.revision, 2);
+    assert.equal(restored.messages[3].response?.responseId, committed1.response.responseId);
+  } finally {
+    host.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

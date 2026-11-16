@@ -39,6 +39,8 @@ const safeMessage = 'The request could not be completed. Please try again.';
 export class FoundationBackend {
   private readonly runtime: FoundationRuntime;
   private readonly active = new Map<string, AbortController>();
+  private readonly workerId: string;
+  private readonly leaseMs: number;
   private stopping = false;
   constructor(
     private readonly catalog: FoundationCatalog,
@@ -47,8 +49,42 @@ export class FoundationBackend {
     private readonly conversations: AuthorizedConversations,
     private readonly journal: AuthorizedRequestJournal,
     private readonly policy: JournalPolicy,
+    config: { workerId?: string; leaseMs?: number; maxSteps?: number } = {},
   ) {
     this.runtime = new FoundationRuntime(catalog);
+    this.workerId = config.workerId ?? id('worker');
+    this.leaseMs = config.leaseMs ?? 30_000;
+  }
+  private startLeaseHeartbeat(
+    requestId: string,
+    principal: Principal,
+    controller: AbortController,
+  ) {
+    const intervalMs = Math.max(25, Math.min(5000, Math.floor(this.leaseMs / 3)));
+    const timer = setInterval(() => {
+      if (controller.signal.aborted) return;
+      void this.journal
+        .renewLease(requestId, this.workerId, this.leaseMs, principal, new AbortController().signal)
+        .then((res) => {
+          if (res.cancelRequested) controller.abort();
+        })
+        .catch(() => {});
+    }, intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }
+  private async checkRemoteCancel(
+    requestId: string,
+    principal: Principal,
+    controller: AbortController,
+  ) {
+    if (controller.signal.aborted) return;
+    if (
+      await this.journal
+        .isCancelRequested(requestId, principal, new AbortController().signal)
+        .catch(() => false)
+    )
+      controller.abort();
   }
   private key(principal: Principal, requestId: string) {
     return JSON.stringify([this.policy.owner(principal), requestId]);
@@ -58,13 +94,11 @@ export class FoundationBackend {
     for (const controller of this.active.values()) controller.abort();
   }
   negotiate(principal: Principal) {
+    const snap = this.catalog.snapshot(principal);
     return {
       protocolVersion: 2 as const,
-      components: this.catalog.snapshot(principal).components.map((item) => item.ref),
-      operations: [
-        { id: 'ui.setControl', version: 1 },
-        { id: 'ui.retryBinding', version: 1 },
-      ],
+      components: snap.components.map((item) => item.ref),
+      operations: snap.actions.map((item) => item.ref),
       history: true,
       replay: true,
       cancellation: true,
@@ -100,9 +134,10 @@ export class FoundationBackend {
   }
   async cancel(requestId: string, principal: Principal, signal: AbortSignal) {
     await this.journal.inspect(requestId, principal, signal);
+    const dbRequested = await this.journal.requestCancel(requestId, principal, signal);
     const controller = this.active.get(this.key(principal, requestId));
     if (controller) controller.abort();
-    return { accepted: !!controller };
+    return { accepted: !!controller || dbRequested };
   }
   private async *existing(requestId: string, principal: Principal, signal: AbortSignal) {
     const page = await this.journal.replay(requestId, -1, principal, signal);
@@ -170,6 +205,8 @@ export class FoundationBackend {
         idempotencyKey: input.idempotencyKey,
         operation: 'turn',
         fingerprint: fingerprint(input),
+        workerId: this.workerId,
+        leaseMs: this.leaseMs,
       },
       input.text,
       principal,
@@ -183,6 +220,7 @@ export class FoundationBackend {
     if (this.stopping) controller.abort();
     const execution = AbortSignal.any([signal, controller.signal]);
     this.active.set(this.key(principal, requestId), controller);
+    const stopHeartbeat = this.startLeaseHeartbeat(requestId, principal, controller);
     const base = {
       protocolVersion: 2 as const,
       requestId,
@@ -211,16 +249,87 @@ export class FoundationBackend {
         input.components,
         context.choice,
       );
-      const result = await this.runtime.execute(plan, principal, execution, input.components, true);
+      const responseId = id('response');
+      const accepted = make({
+        type: 'plan.accepted',
+        responseId,
+        revision: 1,
+        generation: 0,
+        bindingIds: plan.bindings.map((b) => b.id),
+      });
+      await this.journal.append(accepted, principal, execution);
+      yield accepted;
+      const queued: Event[] = [];
+      let notify: (() => void) | null = null;
+      let execDone = false;
+      let execError: unknown;
+      const pushBindingEvent = async (
+        payload:
+          | { type: 'binding.pending'; bindingId: string }
+          | { type: 'binding.ready'; bindingId: string; rowCount: number; truncated: boolean }
+          | { type: 'binding.failed'; bindingId: string; message: string },
+      ) => {
+        const event = make(
+          payload.type === 'binding.failed'
+            ? {
+                type: 'binding.failed',
+                responseId,
+                revision: 1,
+                generation: 0,
+                bindingId: payload.bindingId,
+                diagnostic: {
+                  code: 'SOURCE_FAILURE',
+                  targetId: payload.bindingId,
+                  message: payload.message,
+                  retryable: true,
+                },
+              }
+            : { ...payload, responseId, revision: 1, generation: 0 },
+        );
+        await this.journal.append(event, principal, execution);
+        queued.push(event);
+        notify?.();
+        notify = null;
+      };
+      const execPromise = this.runtime
+        .execute(plan, principal, execution, input.components, true, pushBindingEvent)
+        .then(
+          (res) => {
+            execDone = true;
+            notify?.();
+            notify = null;
+            return res;
+          },
+          (err) => {
+            execDone = true;
+            execError = err;
+            notify?.();
+            notify = null;
+            throw err;
+          },
+        );
+      while (!execDone || queued.length > 0) {
+        if (queued.length > 0) {
+          yield queued.shift()!;
+        } else {
+          await new Promise<void>((resolve) => {
+            notify = resolve;
+          });
+        }
+      }
+      if (execError) throw execError;
+      const result = await execPromise;
       const materialized = await this.runtime.ingest(
         plan,
         result.datasets,
         principal,
         execution,
-        { messageId: input.messageId, responseId: id('response'), revision: 1, generation: 0 },
+        { messageId: input.messageId, responseId, revision: 1, generation: 0 },
         input.components,
         result.failedBindings,
       );
+      await this.checkRemoteCancel(requestId, principal, controller);
+      execution.throwIfAborted();
       const response = await this.controls.attach(materialized, principal, execution, {
         enableControls: true,
         components: input.components,
@@ -270,6 +379,7 @@ export class FoundationBackend {
       terminal = true;
       yield failed;
     } finally {
+      stopHeartbeat();
       this.active.delete(this.key(principal, requestId));
       if (!terminal)
         await this.journal
@@ -286,37 +396,76 @@ export class FoundationBackend {
         path: '',
         message: 'Request is too large',
       });
-    if (
-      !['ui.setControl', 'ui.retryBinding'].includes(input.action.id) ||
-      input.action.version !== 1
-    )
-      throw new FoundationError({
-        code: 'CAPABILITY_UNAVAILABLE',
-        path: '',
-        message: 'Action is unavailable',
-      });
-    if (
-      input.action.id === 'ui.retryBinding' &&
-      (Object.keys(input.payload).length !== 1 || typeof input.payload.bindingId !== 'string')
-    )
+    const actionReg = this.catalog.action(input.action, principal);
+    if (!actionReg.payload.safeParse(input.payload).success)
       throw new FoundationError({
         code: 'SCHEMA_INVALID',
         path: 'payload',
-        message: 'Invalid retry target',
+        message: 'Invalid action payload',
       });
     const location = await this.conversations.locate(input.responseId, principal, signal);
+    let scopeChange:
+      | { controlLabel: string; text: string; newMessageId: string; userMessageId?: string }
+      | undefined;
+    if (input.action.id === 'ui.setControl' && input.action.version === 1) {
+      const baseSnapshot = await this.controls.read(input.responseId, principal, signal);
+      const control = baseSnapshot.plan.blocks
+        .flatMap((block) => (block.kind === 'visual' ? block.controls : []))
+        .find((item) => item.id === input.payload.controlId);
+      if (control?.scopeMode === 'change-answer') {
+        const newMessageId = input.payload.newMessageId;
+        if (typeof newMessageId !== 'string' || !newMessageId)
+          throw new FoundationError({
+            code: 'CAPABILITY_UNAVAILABLE',
+            path: control.id,
+            message: 'Changing answer scope requires a new message ID',
+          });
+        const val = input.payload.value;
+        const valText =
+          val === null ? 'all permitted values' : Array.isArray(val) ? val.join(', ') : String(val);
+        scopeChange = {
+          controlLabel: control.label,
+          text: `Scope change (${control.label}): ${valText}`,
+          newMessageId,
+          ...(typeof input.payload.userMessageId === 'string'
+            ? { userMessageId: input.payload.userMessageId }
+            : {}),
+        };
+      }
+    }
+    const targetLocation = scopeChange
+      ? { conversationId: location.conversationId, messageId: scopeChange.newMessageId }
+      : location;
     const requestId = id('request');
-    const begin = await this.journal.begin(
-      {
-        requestId,
-        ...location,
-        idempotencyKey: input.idempotencyKey,
-        operation: 'control',
-        fingerprint: fingerprint(input),
-      },
-      principal,
-      signal,
-    );
+    const begin = scopeChange
+      ? await this.journal.beginTurn(
+          {
+            requestId,
+            ...targetLocation,
+            idempotencyKey: input.idempotencyKey,
+            operation: 'control',
+            fingerprint: fingerprint(input),
+            workerId: this.workerId,
+            leaseMs: this.leaseMs,
+          },
+          scopeChange.text,
+          principal,
+          signal,
+          scopeChange.userMessageId,
+        )
+      : await this.journal.begin(
+          {
+            requestId,
+            ...targetLocation,
+            idempotencyKey: input.idempotencyKey,
+            operation: 'control',
+            fingerprint: fingerprint(input),
+            workerId: this.workerId,
+            leaseMs: this.leaseMs,
+          },
+          principal,
+          signal,
+        );
     if (begin.kind === 'existing') {
       yield* this.existing(begin.request.requestId, principal, signal);
       return;
@@ -325,7 +474,8 @@ export class FoundationBackend {
     if (this.stopping) controller.abort();
     const execution = AbortSignal.any([signal, controller.signal]);
     this.active.set(this.key(principal, requestId), controller);
-    const base = { protocolVersion: 2 as const, requestId, ...location };
+    const stopHeartbeat = this.startLeaseHeartbeat(requestId, principal, controller);
+    const base = { protocolVersion: 2 as const, requestId, ...targetLocation };
     let sequence = 0;
     let committed = false;
     let startedPublished = false;
@@ -338,7 +488,7 @@ export class FoundationBackend {
       startedPublished = true;
       yield started;
       const response =
-        input.action.id === 'ui.retryBinding'
+        input.action.id === 'ui.retryBinding' && input.action.version === 1
           ? await this.controls.retry(
               {
                 responseId: input.responseId,
@@ -350,20 +500,35 @@ export class FoundationBackend {
               principal,
               execution,
             )
-          : await this.controls.change(
-              {
-                responseId: input.responseId,
-                revision: input.revision,
-                generation: input.generation,
-                controlId: input.payload.controlId,
-                value: input.payload.value,
-                idempotencyKey: input.idempotencyKey,
-              },
-              principal,
-              execution,
-            );
+          : input.action.id === 'ui.setControl' && input.action.version === 1
+            ? await this.controls.change(
+                {
+                  responseId: input.responseId,
+                  revision: input.revision,
+                  generation: input.generation,
+                  controlId: input.payload.controlId,
+                  value: input.payload.value,
+                  idempotencyKey: input.idempotencyKey,
+                  ...(scopeChange ? { newMessageId: scopeChange.newMessageId } : {}),
+                  ...(scopeChange?.userMessageId
+                    ? { userMessageId: scopeChange.userMessageId }
+                    : {}),
+                },
+                principal,
+                execution,
+              )
+            : await this.controls.performAction(input, principal, execution);
       committed = true;
       const publication = new AbortController().signal;
+      if (scopeChange) {
+        await this.conversations.attach(
+          targetLocation.conversationId,
+          targetLocation.messageId,
+          response.responseId,
+          principal,
+          publication,
+        );
+      }
       const update = make({ type: 'response.committed', response });
       await this.journal.append(update, principal, publication);
       const completed = make({ type: 'request.completed' });
@@ -373,7 +538,18 @@ export class FoundationBackend {
       yield completed;
     } catch (error) {
       if (committed || !startedPublished) throw error;
+      const publication = new AbortController().signal;
       const cancelled = execution.aborted;
+      const message = cancelled ? 'Request cancelled.' : safeMessage;
+      if (scopeChange) {
+        await this.conversations.failure(
+          targetLocation.conversationId,
+          targetLocation.messageId,
+          message,
+          principal,
+          publication,
+        );
+      }
       const failed = make(
         cancelled
           ? { type: 'request.cancelled' }
@@ -381,15 +557,16 @@ export class FoundationBackend {
               type: 'request.failed',
               diagnostic: {
                 code: error instanceof FoundationError ? error.diagnostic.code : 'SOURCE_FAILURE',
-                message: cancelled ? 'Request cancelled.' : safeMessage,
+                message,
                 retryable: true,
               },
             },
       );
-      await this.journal.append(failed, principal, new AbortController().signal);
+      await this.journal.append(failed, principal, publication);
       terminal = true;
       yield failed;
     } finally {
+      stopHeartbeat();
       this.active.delete(this.key(principal, requestId));
       if (!terminal)
         await this.journal

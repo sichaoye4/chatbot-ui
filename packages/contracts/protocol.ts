@@ -33,12 +33,30 @@ export const WireDiagnostic = z.strictObject({
   retryable: z.boolean(),
   targetId: LocalId.optional(),
 });
+export const BindingCapabilities = z.strictObject({
+  refreshable: z.boolean(),
+  sorting: z
+    .strictObject({
+      fieldArg: LocalId,
+      directionArg: LocalId,
+      fields: z.array(LocalId).max(100),
+      localSort: z.boolean(),
+    })
+    .optional(),
+  pagination: z
+    .strictObject({
+      cursorArg: LocalId,
+    })
+    .optional(),
+});
 export const BindingDescriptor = z.strictObject({
   bindingId: LocalId,
   source: CapabilityRef,
   fields: z.array(FieldDefinition).max(100),
   grain: z.string().min(1).max(500),
+  capabilities: BindingCapabilities.optional(),
 });
+export type BindingDescriptor = z.infer<typeof BindingDescriptor>;
 export const DatasetState = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('pending') }),
   z.strictObject({ status: z.literal('ready'), result: DataResult }),
@@ -166,9 +184,38 @@ const eventBase = {
   conversationId: LocalId,
   messageId: LocalId,
 };
+const artifactEventBase = {
+  ...eventBase,
+  responseId: LocalId,
+  revision: z.number().int().positive(),
+  generation: z.number().int().nonnegative(),
+};
 export const ProtocolEvent = z.discriminatedUnion('type', [
   z.strictObject({ ...eventBase, type: z.literal('request.started') }),
   z.strictObject({ ...eventBase, type: z.literal('text.delta'), text: z.string().max(16000) }),
+  z.strictObject({
+    ...artifactEventBase,
+    type: z.literal('plan.accepted'),
+    bindingIds: z.array(LocalId).max(20),
+  }),
+  z.strictObject({
+    ...artifactEventBase,
+    type: z.literal('binding.pending'),
+    bindingId: LocalId,
+  }),
+  z.strictObject({
+    ...artifactEventBase,
+    type: z.literal('binding.ready'),
+    bindingId: LocalId,
+    rowCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  }),
+  z.strictObject({
+    ...artifactEventBase,
+    type: z.literal('binding.failed'),
+    bindingId: LocalId,
+    diagnostic: WireDiagnostic,
+  }),
   z.strictObject({
     ...eventBase,
     type: z.literal('response.committed'),
@@ -244,6 +291,7 @@ export const ControlChange = z.strictObject({
   value: InputValue,
   idempotencyKey: LocalId,
   newMessageId: LocalId.optional(),
+  userMessageId: LocalId.optional(),
 });
 export type ControlChange = z.infer<typeof ControlChange>;
 export const OptionQuery = z.strictObject({

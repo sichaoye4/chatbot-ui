@@ -1,6 +1,6 @@
 # V2 reusable chatbot and visualization foundation
 
-Design revision: 2026-11-15.
+Design revision: 2026-11-16.
 
 ## 1. Purpose and assessment
 
@@ -27,16 +27,16 @@ The foundation supplies presentation contracts and optional orchestration. It do
 
 ## 2. Current implementation and gaps
 
-| Area             | Existing implementation                                                                                                                    | Remaining work                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Contracts        | V2 plans, materialized snapshots, selected lifecycle events, negotiation, options and replay schemas | Full event taxonomy, non-TypeScript wire consumer and release compatibility policy |
-| Registry         | Versioned components, controls, tools and option resolvers; client-installed renderer intersection | General action registration, further result semantics and field-level projection policy |
-| Components       | Role-based core, project, statistical and geographic renderers; registered source annotations, local expansion and exact values | Broader real connectors, non-synthetic geography, direct/OpenUI parity and full accessibility review |
-| Execution        | Authorized execution/ingestion, partial results and scoped source retry, scoped controls, optimistic commits and SQLite reference storage | Scope-changing revisions, sort/page/refresh, broader action registration and production retention |
-| Planning         | Provider-independent planner, DeepSeek transport and prior-plan/clarification context | Broader conversation context and held-out semantic evaluation |
-| Client           | Injected shell, HTTP/SSE adapter, control UI, replay and snapshot recovery; experimental package entry points | Stable compiled release, complete event lifecycle and broader integration testing |
-| Domain isolation | CSV definitions, filters and option resolution are in the CSV example; held-out custom component and connector | Independent production integration and broader domain/component evidence |
-| Evidence         | Live DeepSeek reference-browser journey; separate packaged host with custom component, in-process backend and history | Fresh external installation, production integration and broader generality evaluation |
+| Area             | Existing implementation                                                                                                                                      | Remaining work                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Contracts        | V2 plans, materialized snapshots, full 10-event taxonomy, negotiation, options, replay, semver/compatibility policy, and non-TS Python wire fixtures/validator | Frozen v1 coexistence continues for legacy `/` route                                               |
+| Registry         | Versioned components, controls, tools, option resolvers, generic `registerAction` (`ui.sort`, `ui.paginate`, `ui.refresh`, `ui.setControl`, `ui.retryBinding`), `Policy.visibleField` + `fieldProjectionSafe` | Domain connectors beyond bundled examples are host-supplied                                        |
+| Components       | Role-based core, project, statistical and geographic renderers; formatted values, record selection, `:focus-visible`, expansion, mobile/zoom & Axe WCAG 2.1 AA | Manual human screen-reader walkthrough (NVDA/VoiceOver); host-supplied custom geographic assets    |
+| Execution        | Authorized execution/ingestion, partial results, multi-binding scoped retry, `change-answer` new revisions, `dependentPolicy`, semantic prose/grain validation, multi-worker leases & retention purge | Durable multi-region store scaling left to host DB adapter when replacing reference SQLite        |
+| Planning         | Provider-independent planner, DeepSeek transport, prior-plan/clarification context, and 90-run 3-domain held-out evaluation (97.8%)                            | None in foundation contracts                                                                       |
+| Client           | Injected `ChatShell`, `ResponseRenderer`, `FoundationHttpClient`, full event stream reducer, and compiled ESM + `.d.ts` `.tgz` distribution                  | None in foundation contracts                                                                       |
+| Domain isolation | CSV definitions separated in `examples/csv-analytics`; 16-module import boundary guard; external consumer verified in isolated temp dir                        | None in foundation contracts                                                                       |
+| Evidence         | Unit (92), integration (81), deterministic/spike/foundation/live E2E (27), Python wire/CSV oracles, 100-iter benchmark, compiled tarball consumer, 90-run heldout | Manual human screen-reader sign-off                                                                |
 
 The source import guard currently covers sixteen foundation modules. It is useful evidence of those modules' isolation, not proof that the whole application is decoupled. A source package can be staged for TypeScript-aware consumers, but it is experimental and has not been released. See [implementation progress](IMPLEMENTATION_PROGRESS.md) for test evidence and limitations that supersede earlier checkpoints.
 
@@ -213,7 +213,7 @@ OpenUI remains an implementation adapter. Plan data must not encode OpenUI progr
 
 ## 11. Policy, storage and operational boundaries
 
-The host authenticates principals; model plans cannot provide identity or permission context. Discovery is scoped, and every query, option resolution, action, restoration and imported-result publication rechecks policy. Authorized capability discovery alone is not execution authorization. Field-level policy must constrain descriptors and returned projection, including exact-value tables and tool samples.
+The host authenticates principals; model plans cannot provide identity or permission context. Discovery is scoped, and every query, option resolution, action, restoration and imported-result publication rechecks policy. Authorized capability discovery alone is not execution authorization. Field-level policy (`Policy.visibleField` paired with `ToolRegistration.fieldProjectionSafe`) must constrain descriptors, snapshot capability invalidation tokens, execution/reauthorization scope identities, and returned projections including exact-value tables and tool samples. Hosts enabling `fieldProjectionSafe: true` are responsible for ensuring tool descriptions, arguments, provenance, `resultAnnotations`, and option resolvers do not leak hidden field names or derived values.
 
 Keep the existing before/after execution authorization check. Bind caches to effective arguments, tool version, source version, authorized scope and policy epoch. Cross-tenant cache sharing requires explicit safe semantics. Permission revocation prevents cached history and replay from exposing stale-authorized data.
 

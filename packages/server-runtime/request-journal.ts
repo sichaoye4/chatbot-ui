@@ -19,11 +19,14 @@ const BeginRequest = z.strictObject({
   operation: z.string().min(1).max(160),
   fingerprint: z.string().min(1).max(1000),
   scopeKey: z.string().min(1).max(16000),
+  workerId: z.string().max(160).optional(),
+  leaseMs: z.number().int().positive().max(3_600_000).optional(),
 });
 export type JournalRequest = z.infer<typeof BeginRequest> & {
   status: z.infer<typeof RequestStatus>;
   lastSequence: number;
   responseId?: string;
+  cancelRequested?: boolean;
 };
 /** Storage only: callers must authorize the owner, conversation and every response before replay. */
 export class SqliteRequestJournal {
@@ -43,8 +46,24 @@ export class SqliteRequestJournal {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
-      CREATE TABLE IF NOT EXISTS v2_journal_requests(owner TEXT NOT NULL, request_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, idem TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL, scope_key TEXT NOT NULL, status TEXT NOT NULL, last_sequence INTEGER NOT NULL, floor_sequence INTEGER NOT NULL, updated_at INTEGER NOT NULL, response_id TEXT, PRIMARY KEY(owner,request_id), UNIQUE(owner,idem));
+      CREATE TABLE IF NOT EXISTS v2_journal_requests(owner TEXT NOT NULL, request_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, idem TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL, scope_key TEXT NOT NULL, status TEXT NOT NULL, last_sequence INTEGER NOT NULL, floor_sequence INTEGER NOT NULL, updated_at INTEGER NOT NULL, response_id TEXT, worker_id TEXT NOT NULL DEFAULT '', lease_expires_at INTEGER NOT NULL DEFAULT 0, cancel_requested INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,request_id), UNIQUE(owner,idem));
       CREATE TABLE IF NOT EXISTS v2_journal_events(owner TEXT NOT NULL, request_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,request_id,sequence), UNIQUE(owner,event_id), FOREIGN KEY(owner,request_id) REFERENCES v2_journal_requests(owner,request_id));`);
+    const columns = new Set(
+      this.db
+        .prepare('PRAGMA table_info(v2_journal_requests)')
+        .all()
+        .map((c) => String((c as { name: unknown }).name)),
+    );
+    if (!columns.has('worker_id'))
+      this.db.exec("ALTER TABLE v2_journal_requests ADD COLUMN worker_id TEXT NOT NULL DEFAULT ''");
+    if (!columns.has('lease_expires_at'))
+      this.db.exec(
+        'ALTER TABLE v2_journal_requests ADD COLUMN lease_expires_at INTEGER NOT NULL DEFAULT 0',
+      );
+    if (!columns.has('cancel_requested'))
+      this.db.exec(
+        'ALTER TABLE v2_journal_requests ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0',
+      );
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS v2_journal_event_ids(owner TEXT NOT NULL, event_id TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(owner,event_id), FOREIGN KEY(owner,request_id) REFERENCES v2_journal_requests(owner,request_id));',
     );
@@ -108,19 +127,25 @@ export class SqliteRequestJournal {
     owner: string,
     raw: unknown,
     text: string,
+    userMessageId?: string,
   ): { kind: 'created' | 'existing'; request: JournalRequest } {
     if (!owner) throw new Error('JOURNAL_OWNER_REQUIRED');
     const input = BeginRequest.parse(raw);
     return this.transaction(() => {
       const result = this.beginInTransaction(owner, input);
-      prepareTurnInTransaction(this.db, owner, {
-        conversationId: input.conversationId,
-        requestId: result.request.requestId,
-        userMessageId: `user${result.request.requestId}`,
-        assistantMessageId: input.messageId,
-        text,
-        scopeKey: input.scopeKey,
-      });
+      prepareTurnInTransaction(
+        this.db,
+        owner,
+        {
+          conversationId: input.conversationId,
+          requestId: result.request.requestId,
+          userMessageId: userMessageId ?? `user${result.request.requestId}`,
+          assistantMessageId: input.messageId,
+          text,
+          scopeKey: input.scopeKey,
+        },
+        this.now(),
+      );
       return result;
     });
   }
@@ -145,7 +170,7 @@ export class SqliteRequestJournal {
     }
     if (this.row(owner, input.requestId)) throw new Error('REQUEST_CONFLICT');
     this.db
-      .prepare('INSERT INTO v2_journal_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .prepare('INSERT INTO v2_journal_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         owner,
         input.requestId,
@@ -160,6 +185,9 @@ export class SqliteRequestJournal {
         0,
         this.now(),
         null,
+        input.workerId ?? '',
+        input.leaseMs ? this.now() + input.leaseMs : 0,
+        0,
       );
     return { kind: 'created', request: { ...input, status: 'pending', lastSequence: -1 } };
   }
@@ -300,12 +328,64 @@ export class SqliteRequestJournal {
       ) === 1
     );
   }
+  /** Multi-worker safe: interrupt only requests whose worker lease has expired. */
+  interruptStaleLeases() {
+    const now = this.now();
+    return Number(
+      this.db
+        .prepare(
+          "UPDATE v2_journal_requests SET status='interrupted', updated_at=? WHERE status IN ('pending','running') AND lease_expires_at > 0 AND lease_expires_at < ?",
+        )
+        .run(now, now).changes,
+    );
+  }
+  renewLease(owner: string, requestId: string, workerId: string, leaseMs: number) {
+    const now = this.now();
+    return this.transaction(() => {
+      const updated = this.db
+        .prepare(
+          "UPDATE v2_journal_requests SET lease_expires_at=?, updated_at=? WHERE owner=? AND request_id=? AND worker_id=? AND status IN ('pending','running')",
+        )
+        .run(now + leaseMs, now, owner, requestId, workerId);
+      const row = this.row(owner, requestId) as Record<string, unknown> | undefined;
+      return {
+        active: Number(updated.changes) === 1,
+        cancelRequested: row ? Number(row.cancel_requested) === 1 : false,
+      };
+    });
+  }
+  requestCancel(owner: string, requestId: string) {
+    const now = this.now();
+    return this.transaction(() => {
+      const updated = this.db
+        .prepare(
+          "UPDATE v2_journal_requests SET cancel_requested=1, updated_at=? WHERE owner=? AND request_id=? AND status IN ('pending','running')",
+        )
+        .run(now, owner, requestId);
+      if (Number(updated.changes) === 1) return true;
+      const row = this.row(owner, requestId) as Record<string, unknown> | undefined;
+      return Boolean(
+        row &&
+        (row.status === 'pending' || row.status === 'running') &&
+        Number(row.cancel_requested) === 1,
+      );
+    });
+  }
+  isCancelRequested(owner: string, requestId: string) {
+    const row = this.row(owner, requestId) as Record<string, unknown> | undefined;
+    return Boolean(row && Number(row.cancel_requested) === 1);
+  }
   purgeExpired() {
     const cutoff = this.now() - this.options.retentionMs;
     return this.transaction(() => {
       const deleted = this.db
         .prepare(
           'DELETE FROM v2_journal_events WHERE EXISTS (SELECT 1 FROM v2_journal_requests r WHERE r.owner=v2_journal_events.owner AND r.request_id=v2_journal_events.request_id AND r.updated_at<?)',
+        )
+        .run(cutoff);
+      this.db
+        .prepare(
+          "DELETE FROM v2_journal_event_ids WHERE EXISTS (SELECT 1 FROM v2_journal_requests r WHERE r.owner=v2_journal_event_ids.owner AND r.request_id=v2_journal_event_ids.request_id AND r.status IN ('completed','failed','cancelled','interrupted') AND r.updated_at<?)",
         )
         .run(cutoff);
       this.db

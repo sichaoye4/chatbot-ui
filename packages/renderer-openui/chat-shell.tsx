@@ -8,7 +8,7 @@ import {
   type BackendClient,
   type ConversationMessage,
 } from '../contracts/protocol.ts';
-import type { Control } from '../contracts/foundation.ts';
+import type { Arguments } from '../contracts/foundation.ts';
 import {
   initialFoundationState,
   interruptFoundationRequest,
@@ -21,9 +21,11 @@ import { ResponseRenderer, type ClientRegistry, type Presentation } from './foun
 type ShellMessage = ConversationMessage & { view?: FoundationClientState };
 export type ShellPresentation = Presentation & {
   title?: string;
+  brand?: string;
   composerLabel?: string;
   sendLabel?: string;
   placeholder?: string;
+  suggestions?: string[];
 };
 const id = (prefix: string) => `${prefix}${crypto.randomUUID().replaceAll('-', '')}`;
 
@@ -326,11 +328,38 @@ export function ChatShell({
   async function updateControl(
     message: ShellMessage,
     action: { id: string; version: number },
-    payload: Record<string, Control['initialValue']>,
+    payload: Arguments,
   ) {
     const response = message.response;
     const dispatch = client.dispatchAction?.bind(client);
     if (!response || !dispatch || !ready || active.current) return;
+    const scopeControl =
+      action.id === 'ui.setControl' && action.version === 1 && typeof payload.controlId === 'string'
+        ? response.plan.blocks
+            .flatMap((block) => (block.kind === 'visual' ? block.controls : []))
+            .find((item) => item.id === payload.controlId && item.scopeMode === 'change-answer')
+        : undefined;
+    const scopeChange = scopeControl
+      ? {
+          newMessageId: id('message'),
+          userMessageId: id('message'),
+          text: `Scope change (${scopeControl.label}): ${
+            payload.value === null
+              ? 'all permitted values'
+              : Array.isArray(payload.value)
+                ? payload.value.join(', ')
+                : String(payload.value)
+          }`,
+        }
+      : undefined;
+    const targetMessageId = scopeChange ? scopeChange.newMessageId : message.id;
+    const requestPayload: Arguments = scopeChange
+      ? {
+          ...payload,
+          newMessageId: scopeChange.newMessageId,
+          userMessageId: scopeChange.userMessageId,
+        }
+      : payload;
     const controller = new AbortController();
     const pending: { controller: AbortController; requestId?: string } = { controller };
     const currentSession = session.current;
@@ -340,15 +369,23 @@ export function ChatShell({
     let state: FoundationClientState = {
       ...initialFoundationState,
       sequences: {},
-      response,
+      ...(scopeChange ? {} : { response }),
       conversationId,
-      messageId: message.id,
+      messageId: targetMessageId,
     };
+    if (scopeChange)
+      setMessages((current) => [
+        ...current,
+        { id: scopeChange.userMessageId, role: 'user', text: scopeChange.text },
+        { id: scopeChange.newMessageId, role: 'assistant', text: '', view: state },
+      ]);
     const publish = () => {
       if (session.current === currentSession)
         setMessages((current) =>
           current.map((item) =>
-            item.id === message.id ? { ...item, response: state.response, view: state } : item,
+            item.id === targetMessageId
+              ? { ...item, text: state.text || item.text, response: state.response, view: state }
+              : item,
           ),
         );
     };
@@ -359,7 +396,7 @@ export function ChatShell({
           revision: response.revision,
           generation: response.generation,
           action,
-          payload,
+          payload: requestPayload,
           idempotencyKey: id('action'),
         },
         controller.signal,
@@ -367,17 +404,23 @@ export function ChatShell({
         const event = ProtocolEvent.parse(raw);
         if (
           event.conversationId !== conversationId ||
-          event.messageId !== message.id ||
+          event.messageId !== targetMessageId ||
           (pending.requestId && pending.requestId !== event.requestId) ||
           (!pending.requestId && event.type !== 'request.started')
         )
           throw new Error('Unexpected action event');
         if (event.type === 'response.committed') {
+          const validCommit = scopeChange
+            ? event.response.responseId !== response.responseId &&
+              event.response.messageId === scopeChange.newMessageId &&
+              event.response.revision === response.revision + 1 &&
+              event.response.generation === 0
+            : event.response.responseId === response.responseId &&
+              event.response.messageId === message.id &&
+              event.response.revision === response.revision &&
+              event.response.generation === response.generation + 1;
           if (
-            event.response.responseId !== response.responseId ||
-            event.response.messageId !== message.id ||
-            event.response.revision !== response.revision ||
-            event.response.generation !== response.generation + 1 ||
+            !validCommit ||
             event.response.plan.blocks.some(
               (block) =>
                 block.kind === 'visual' &&
@@ -427,7 +470,8 @@ export function ChatShell({
     ?.response?.responseId;
   return (
     <div className="foundation-chat">
-      <header>
+      <header className="foundation-header">
+        {presentation.brand && <span className="foundation-brand">{presentation.brand}</span>}
         <h1>{presentation.title ?? 'Chat'}</h1>
       </header>
       <div
@@ -441,6 +485,22 @@ export function ChatShell({
           follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
         }}
       >
+        {messages.length === 0 &&
+          presentation.suggestions &&
+          presentation.suggestions.length > 0 && (
+            <div className="foundation-suggestions" role="group" aria-label="Suggested prompts">
+              {presentation.suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  disabled={!ready || running}
+                  onClick={() => void send(suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
         {messages.map((message) => (
           <article
             key={message.id}
@@ -453,6 +513,11 @@ export function ChatShell({
                 registry={registry}
                 presentation={presentation}
                 controlsDisabled={running}
+                onAction={
+                  message.response.responseId === currentResponseId && client.dispatchAction
+                    ? (action, payload) => void updateControl(message, action, payload as Arguments)
+                    : undefined
+                }
                 onRetry={
                   message.response.responseId === currentResponseId &&
                   client.dispatchAction &&
@@ -528,7 +593,19 @@ export function ChatShell({
             ) : (
               message.text && <p>{message.text}</p>
             )}
-            {message.view?.status === 'running' && <p role="status">Responding…</p>}
+            {message.view?.status === 'running' && (
+              <p role="status">
+                {message.view.staged
+                  ? (() => {
+                      const entries = Object.values(message.view.staged.bindings);
+                      const done = entries.filter((entry) => entry.status !== 'pending').length;
+                      return entries.length
+                        ? `Preparing response (${done}/${entries.length} data sources settled)…`
+                        : 'Responding…';
+                    })()
+                  : 'Responding…'}
+              </p>
+            )}
             {message.view?.error && <p role="status">{message.view.error}</p>}
             {message.view?.status === 'interrupted' && message.view.requestId && canReplay && (
               <button type="button" disabled={running} onClick={() => void recover(message)}>

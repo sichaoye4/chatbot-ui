@@ -191,3 +191,66 @@ test('cancellation prevents planner/query work and absent facts fail without inv
     /RESULT_INVALID/,
   );
 });
+
+test('rejects ungrounded literal prose numbers and finer-grain rows misstated as annual or additive totals, allowing repair', async () => {
+  const c = catalog();
+  const runtime = new FoundationRuntime(c);
+  const literalNumberPlan = plan(c);
+  literalNumberPlan.blocks.push({
+    id: 'summary',
+    kind: 'text',
+    parts: [{ text: 'Net revenue in 2024 reached $130.' }],
+  });
+  assert.throws(() => c.validate(literalNumberPlan, principal), /SEMANTIC_INVALID/);
+
+  const buildGrainPlan = (text: string) => {
+    const p = plan(c);
+    p.facts.push({
+      id: 'netFact',
+      field: { bindingId: 'data', fieldId: 'net' },
+      row: 0,
+      format: 'decimal',
+    });
+    p.blocks.push({
+      id: 'summary',
+      kind: 'text',
+      parts: [{ text }, { factId: 'netFact' }],
+    });
+    return p;
+  };
+
+  // Pre-execution validation catches explicit annual total claims on daily grain and repairs in plan()
+  let attempts = 0;
+  const repaired = await runtime.plan(
+    {
+      propose: async (context) => {
+        attempts++;
+        if (attempts === 1) return buildGrainPlan('Annual total net revenue for 2024: ');
+        assert.ok(context.feedback?.some((d) => d.code === 'SEMANTIC_INVALID'));
+        return buildGrainPlan('Daily net revenue recorded on 2024-01-01: ');
+      },
+    },
+    'Show 2024 net revenue',
+    principal,
+    new AbortController().signal,
+  );
+  assert.equal(attempts, 2);
+  const exec = await runtime.execute(repaired, principal, new AbortController().signal);
+  assert.equal(exec.facts.netFact, '170');
+
+  // Post-execution check rejects calling a 1-row daily result over a full-year period an unqualified total
+  await assert.rejects(
+    runtime.execute(
+      buildGrainPlan('Total net revenue for the period: '),
+      principal,
+      new AbortController().signal,
+    ),
+    /SEMANTIC_INVALID/,
+  );
+
+  // Fixture commerce.revenue net measure is marked additive: false -> rejects sum claim
+  assert.throws(
+    () => c.validate(buildGrainPlan('Combined total net revenue: '), principal),
+    /SEMANTIC_INVALID/,
+  );
+});

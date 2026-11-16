@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { CsvRepository } from './index.ts';
+import { CsvRepository, columns as csvColumns } from './index.ts';
 import { Filters } from '../../packages/contracts/index.ts';
 import type { Principal as LegacyPrincipal } from '../../packages/catalog/index.ts';
 import type {
@@ -50,16 +50,31 @@ export function csvFoundationDomain(
     ['csv.monthlySla', 'one row per calendar month'],
     ['csv.monthlyQuality', 'one row per calendar month'],
     ['csv.countByDomain', 'one row per domain'],
+    ['csv.records', 'one row per source record'],
   ]);
+  const RecordsV2Args = z.strictObject({
+    ...Filters.shape,
+    sort: z.enum(['rowId', ...csvColumns]).optional(),
+    direction: z.enum(['asc', 'desc']).optional(),
+    cursor: z.string().max(2048).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  });
   const labels: Record<string, string> = {
+    rowId: 'Record ID',
     month: 'Month',
+    month_id: 'Month ID',
     domain: 'Domain',
+    system: 'System',
+    ctry_iso_cde: 'Country',
     record_count: 'Recorded observations',
     system_count: 'Distinct systems',
     sla_mean: 'SLA met rate',
+    sla_met_rate: 'SLA met rate',
     sla_observations: 'SLA observations',
+    avg_comp: 'Average completion score',
     avg_comp_mean: 'Average completion score',
     avg_comp_observations: 'Completion observations',
+    data_ctrl_score: 'Data control score',
     data_ctrl_score_mean: 'Data control score',
     data_ctrl_score_observations: 'Data control observations',
   };
@@ -82,16 +97,29 @@ export function csvFoundationDomain(
           const unit =
             f.unit === 'ratio'
               ? 'ratio'
-              : f.name === 'avg_comp_mean'
+              : f.name === 'avg_comp_mean' || f.name === 'avg_comp'
                 ? 'score:avg_comp'
-                : f.name === 'data_ctrl_score_mean'
+                : f.name === 'data_ctrl_score_mean' || f.name === 'data_ctrl_score'
                   ? 'score:data_ctrl_score'
-                  : 'count';
+                  : f.name === 'src_ctrl_score'
+                    ? 'score:src_ctrl_score'
+                    : f.name.includes('size')
+                      ? 'people'
+                      : f.name === 'src_tier'
+                        ? 'tier'
+                        : 'count';
           return {
             id: f.name,
             label: labels[f.name] ?? f.name,
             type: f.type,
-            role: measure ? 'measure' : f.type === 'date' ? 'time' : 'dimension',
+            role:
+              f.name === 'rowId'
+                ? 'identifier'
+                : measure
+                  ? 'measure'
+                  : f.type === 'date'
+                    ? 'time'
+                    : 'dimension',
             nullable: f.nullable,
             ...(f.nullable ? { nullMeaning: 'No recorded observation for this aggregate' } : {}),
             description: f.name.includes('mean')
@@ -101,8 +129,18 @@ export function csvFoundationDomain(
               ? {
                   unit,
                   measure: {
-                    aggregation: f.name.includes('mean') ? 'unweighted mean' : 'count',
-                    precision: f.name.includes('mean') ? 4 : 0,
+                    aggregation: f.name.includes('mean')
+                      ? 'unweighted mean'
+                      : tool.id === 'csv.records'
+                        ? 'raw observation'
+                        : 'count',
+                    precision:
+                      f.name.includes('mean') ||
+                      f.name === 'sla_met_rate' ||
+                      f.name.endsWith('score') ||
+                      f.name === 'avg_comp'
+                        ? 4
+                        : 0,
                     additive: false,
                   },
                 }
@@ -115,10 +153,22 @@ export function csvFoundationDomain(
         return {
           ref: { id: tool.id, version: 1 },
           description: tool.description,
-          args: Filters,
+          args: tool.id === 'csv.records' ? RecordsV2Args : Filters,
           fields,
           grain,
           partitions: tool.partitions,
+          ...(options.interactive ? { refreshable: true } : {}),
+          ...(tool.id === 'csv.records' && options.interactive
+            ? {
+                sorting: {
+                  fieldArg: 'sort',
+                  directionArg: 'direction',
+                  fields: ['rowId', ...csvColumns],
+                  localSort: false,
+                },
+                pagination: { cursorArg: 'cursor' },
+              }
+            : {}),
           interactive: options.interactive
             ? Object.fromEntries(
                 ['domain', 'country', 'system', 'month'].map((argument) => [

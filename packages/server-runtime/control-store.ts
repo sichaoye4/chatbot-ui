@@ -79,17 +79,31 @@ export class MemoryControlSnapshotStore implements ControlSnapshotStore {
         ? { kind: 'replayed', snapshot: structuredClone(prior.snapshot) }
         : { kind: 'idempotency-conflict' };
     const key = this.key(input.owner, input.responseId);
+    const nextResponse = input.snapshot.response;
+    const isNewRevision =
+      nextResponse.responseId !== input.responseId &&
+      nextResponse.revision === input.baseRevision + 1 &&
+      nextResponse.generation === 0;
+    const isNextGeneration =
+      nextResponse.responseId === input.responseId &&
+      nextResponse.revision === input.baseRevision &&
+      nextResponse.generation === input.baseGeneration + 1;
     if (
       this.heads.get(key) !== this.versionKey(input.baseRevision, input.baseGeneration) ||
-      input.snapshot.response.responseId !== input.responseId ||
-      input.snapshot.response.revision !== input.baseRevision ||
-      input.snapshot.response.generation !== input.baseGeneration + 1
+      (!isNewRevision && !isNextGeneration)
     )
       return { kind: 'conflict' };
     const next = structuredClone(input.snapshot);
-    const version = this.versionKey(next.response.revision, next.response.generation);
-    this.snapshots.get(key)!.set(version, next);
-    this.heads.set(key, version);
+    const targetKey = this.key(input.owner, nextResponse.responseId);
+    const version = this.versionKey(nextResponse.revision, nextResponse.generation);
+    if (isNewRevision) {
+      if (this.heads.has(targetKey)) return { kind: 'conflict' };
+      this.heads.set(targetKey, version);
+      this.snapshots.set(targetKey, new Map([[version, next]]));
+    } else {
+      this.snapshots.get(key)!.set(version, next);
+      this.heads.set(key, version);
+    }
     this.requests.set(requestKey, {
       fingerprint: input.fingerprint,
       snapshot: structuredClone(next),

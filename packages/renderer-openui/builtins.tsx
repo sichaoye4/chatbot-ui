@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import { useState, type ComponentType } from 'react';
 import type { ProjectViewData } from '../contracts/project-validation.ts';
 import { projectV2Model } from '../contracts/project-v2.ts';
 import { AnalyticsChart } from '../ui-kit/chart.tsx';
@@ -7,7 +7,7 @@ import { ProjectChart } from '../ui-kit/project-charts.tsx';
 import { VisualizationChart } from '../ui-kit/visualization-charts.tsx';
 import { visualizationKinds } from '../contracts/visualization.ts';
 import { visualizationV2Model } from '../contracts/visualization-v2.ts';
-import type { ClientRegistry, ElementViewProps } from './foundation.tsx';
+import { formatCellValue, type ClientRegistry, type ElementViewProps } from './foundation.tsx';
 
 // These are display adapters only. They do not infer units, provenance, or business meaning.
 function chartData({ fields, data }: ElementViewProps): ProjectViewData {
@@ -45,8 +45,8 @@ function Metric(props: ElementViewProps) {
         ? new Intl.NumberFormat(
             props.locale,
             field?.unit === 'ratio'
-              ? { style: 'percent', maximumFractionDigits: 2 }
-              : { maximumFractionDigits: field?.measure?.precision ?? 4 },
+              ? { style: 'percent', maximumFractionDigits: 2, ...props.numberFormat }
+              : { maximumFractionDigits: field?.measure?.precision ?? 4, ...props.numberFormat },
           ).format(value)
         : String(value);
   return (
@@ -129,8 +129,69 @@ function Pie(props: ElementViewProps) {
   );
 }
 
+function compareSortValues(
+  left: string | number | boolean | null | undefined,
+  right: string | number | boolean | null | undefined,
+  direction: 'asc' | 'desc',
+): number {
+  const leftNull = left === null || left === undefined;
+  const rightNull = right === null || right === undefined;
+  if (leftNull && rightNull) return 0;
+  if (leftNull) return 1;
+  if (rightNull) return -1;
+  const base =
+    typeof left === 'number' && typeof right === 'number'
+      ? left - right
+      : String(left).localeCompare(String(right), 'en-US', { numeric: true });
+  return direction === 'desc' ? -base : base;
+}
+
 function Table(props: ElementViewProps) {
   const columns = props.element.roles.columns?.map((ref) => ref.fieldId) ?? [];
+  const fieldById = new Map(props.fields.map((field) => [field.id, field]));
+  const idField = props.fields.find((field) => field.role === 'identifier');
+  const [localSort, setLocalSort] = useState<{ field: string; direction: 'asc' | 'desc' } | null>(
+    null,
+  );
+  const sorting = props.descriptor?.capabilities?.sorting;
+  const pagination = props.descriptor?.capabilities?.pagination;
+  const canUseLocalSort = Boolean(
+    sorting?.localSort &&
+    !props.data.provenance.truncated &&
+    props.data.provenance.nextCursor === null,
+  );
+  const hasSortAction = Boolean(
+    props.onAction && props.operations?.some((op) => op.id === 'ui.sort' && op.version === 1),
+  );
+  const hasPaginateAction = Boolean(
+    props.onAction && props.operations?.some((op) => op.id === 'ui.paginate' && op.version === 1),
+  );
+  const serverSortField =
+    sorting && typeof props.bindingArgs?.[sorting.fieldArg] === 'string'
+      ? String(props.bindingArgs[sorting.fieldArg])
+      : null;
+  const serverSortDir =
+    sorting && props.bindingArgs?.[sorting.directionArg] === 'desc'
+      ? 'desc'
+      : sorting && props.bindingArgs?.[sorting.directionArg] === 'asc'
+        ? 'asc'
+        : undefined;
+  const activeSortField = canUseLocalSort ? (localSort?.field ?? null) : serverSortField;
+  const activeSortDir = canUseLocalSort
+    ? localSort?.direction
+    : (serverSortDir ?? (serverSortField ? 'asc' : undefined));
+  const rows =
+    canUseLocalSort && localSort
+      ? [...props.data.rows].sort((a, b) =>
+          compareSortValues(a[localSort.field], b[localSort.field], localSort.direction),
+        )
+      : props.data.rows;
+  const showPagination = Boolean(
+    pagination &&
+    hasPaginateAction &&
+    props.bindingId &&
+    (props.canGoPrevious || props.data.provenance.nextCursor !== null),
+  );
   return (
     <div
       className="foundation-table-scroll"
@@ -141,24 +202,129 @@ function Table(props: ElementViewProps) {
       <table>
         <thead>
           <tr>
-            {columns.map((id) => (
-              <th key={id} scope="col">
-                {fieldLabel(props, id)}
-              </th>
-            ))}
+            {columns.map((id) => {
+              const sortable = Boolean(
+                sorting &&
+                (sorting.fields.length === 0 || sorting.fields.includes(id)) &&
+                (canUseLocalSort || (hasSortAction && props.bindingId)),
+              );
+              const isSorted = activeSortField === id;
+              const nextDirection: 'asc' | 'desc' =
+                isSorted && activeSortDir === 'asc' ? 'desc' : 'asc';
+              return (
+                <th
+                  key={id}
+                  scope="col"
+                  aria-sort={
+                    isSorted ? (activeSortDir === 'desc' ? 'descending' : 'ascending') : undefined
+                  }
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      className="foundation-sort-btn"
+                      disabled={props.controlsDisabled}
+                      onClick={() => {
+                        if (canUseLocalSort) {
+                          setLocalSort({ field: id, direction: nextDirection });
+                        } else if (hasSortAction && props.bindingId) {
+                          props.onAction!(
+                            { id: 'ui.sort', version: 1 },
+                            { bindingId: props.bindingId, fieldId: id, direction: nextDirection },
+                          );
+                        }
+                      }}
+                    >
+                      {fieldLabel(props, id)}
+                      {isSorted ? (activeSortDir === 'desc' ? ' ▼' : ' ▲') : ''}
+                    </button>
+                  ) : (
+                    fieldLabel(props, id)
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {props.data.rows.map((row, index) => (
-            <tr key={index}>
-              {columns.map((id) => (
-                <td key={id}>{row[id] === null ? '—' : String(row[id])}</td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row, index) => {
+            const rawId = idField ? row[idField.id] : undefined;
+            const selectable =
+              props.bindingId &&
+              idField &&
+              props.onSelectRecord &&
+              (typeof rawId === 'string' || typeof rawId === 'number');
+            return (
+              <tr key={index}>
+                {columns.map((id) => {
+                  const field = fieldById.get(id);
+                  const formatted = formatCellValue(row[id], field, {
+                    locale: props.locale,
+                    timezone: props.timezone,
+                    numberFormat: props.numberFormat,
+                  });
+                  return (
+                    <td key={id}>
+                      {selectable && id === idField.id ? (
+                        <button
+                          type="button"
+                          className="foundation-link-btn"
+                          aria-label={`Select ${fieldLabel(props, id)} ${rawId}`}
+                          onClick={() =>
+                            props.onSelectRecord!({
+                              bindingId: props.bindingId!,
+                              identifierField: idField.id,
+                              id: rawId,
+                              row,
+                            })
+                          }
+                        >
+                          {formatted}
+                        </button>
+                      ) : (
+                        formatted
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-      {!props.data.rows.length && <p role="status">No observations are available.</p>}
+      {!rows.length && <p role="status">No observations are available.</p>}
+      {showPagination && (
+        <div className="foundation-table-pagination" role="navigation" aria-label="Pagination">
+          {props.canGoPrevious && (
+            <button
+              type="button"
+              disabled={props.controlsDisabled}
+              onClick={() =>
+                props.onAction!(
+                  { id: 'ui.paginate', version: 1 },
+                  { bindingId: props.bindingId!, cursor: props.previousCursor ?? null },
+                )
+              }
+            >
+              Previous page
+            </button>
+          )}
+          {props.data.provenance.nextCursor !== null && (
+            <button
+              type="button"
+              disabled={props.controlsDisabled}
+              onClick={() =>
+                props.onAction!(
+                  { id: 'ui.paginate', version: 1 },
+                  { bindingId: props.bindingId!, cursor: props.data.provenance.nextCursor },
+                )
+              }
+            >
+              Next page
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,365 @@
+{
+  "negotiation": {
+    "protocolVersion": 2,
+    "components": [
+      {
+        "id": "ui.histogram",
+        "version": 1
+      },
+      {
+        "id": "ui.boxPlot",
+        "version": 1
+      },
+      {
+        "id": "ui.scatter",
+        "version": 1
+      },
+      {
+        "id": "ui.heatmap",
+        "version": 1
+      },
+      {
+        "id": "ui.bullet",
+        "version": 1
+      },
+      {
+        "id": "ui.groupedBar",
+        "version": 1
+      },
+      {
+        "id": "ui.stackedBar",
+        "version": 1
+      },
+      {
+        "id": "ui.dumbbell",
+        "version": 1
+      },
+      {
+        "id": "ui.waterfall",
+        "version": 1
+      },
+      {
+        "id": "ui.intervalTrend",
+        "version": 1
+      },
+      {
+        "id": "ui.timeline",
+        "version": 1
+      },
+      {
+        "id": "ui.treemap",
+        "version": 1
+      },
+      {
+        "id": "ui.sankey",
+        "version": 1
+      },
+      {
+        "id": "ui.choropleth",
+        "version": 1
+      },
+      {
+        "id": "ui.gantt",
+        "version": 1
+      },
+      {
+        "id": "ui.flowchart",
+        "version": 1
+      },
+      {
+        "id": "ui.burndown",
+        "version": 1
+      },
+      {
+        "id": "ui.cumulativeFlow",
+        "version": 1
+      },
+      {
+        "id": "ui.metric",
+        "version": 1
+      },
+      {
+        "id": "ui.trend",
+        "version": 1
+      },
+      {
+        "id": "ui.comparison",
+        "version": 1
+      },
+      {
+        "id": "ui.pie",
+        "version": 1
+      },
+      {
+        "id": "ui.table",
+        "version": 1
+      }
+    ],
+    "operations": [
+      {
+        "id": "ui.setControl",
+        "version": 1
+      },
+      {
+        "id": "ui.retryBinding",
+        "version": 1
+      },
+      {
+        "id": "ui.sort",
+        "version": 1
+      },
+      {
+        "id": "ui.paginate",
+        "version": 1
+      },
+      {
+        "id": "ui.refresh",
+        "version": 1
+      }
+    ],
+    "history": true,
+    "replay": true,
+    "cancellation": true
+  },
+  "clarifyEvents": [
+    {
+      "protocolVersion": 2,
+      "eventId": "event62d5e3ae96e844fb934df4b0f01ae353",
+      "requestId": "request0013c3244e17417a8d51400999a49f6d",
+      "sequence": 0,
+      "conversationId": "conv_text",
+      "messageId": "msg_clarify",
+      "type": "request.started"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "eventd665d7441d104d449899eb42a161d560",
+      "requestId": "request0013c3244e17417a8d51400999a49f6d",
+      "sequence": 1,
+      "conversationId": "conv_text",
+      "messageId": "msg_clarify",
+      "responseId": "response52e8fe85bc4c413794f0b1c6f3242632",
+      "revision": 1,
+      "generation": 0,
+      "type": "plan.accepted",
+      "bindingIds": []
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event40edef75e6d848b98f704194fb23e81f",
+      "requestId": "request0013c3244e17417a8d51400999a49f6d",
+      "sequence": 2,
+      "conversationId": "conv_text",
+      "messageId": "msg_clarify",
+      "type": "response.committed",
+      "response": {
+        "protocolVersion": 2,
+        "messageId": "msg_clarify",
+        "responseId": "response52e8fe85bc4c413794f0b1c6f3242632",
+        "revision": 1,
+        "generation": 0,
+        "plan": {
+          "schemaVersion": 2,
+          "capabilitySnapshotId": "catalog-33-af300f45",
+          "bindings": [],
+          "facts": [],
+          "blocks": [
+            {
+              "id": "q1",
+              "kind": "clarification",
+              "question": "Which breakdown would you like?",
+              "choices": [
+                {
+                  "id": "summary",
+                  "label": "Executive summary"
+                },
+                {
+                  "id": "daily",
+                  "label": "Daily revenue"
+                }
+              ]
+            }
+          ]
+        },
+        "bindingDescriptors": [],
+        "datasets": {},
+        "facts": {},
+        "operations": [],
+        "status": "complete",
+        "diagnostics": []
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "eventd23e132fb96c41aca3db16c7c566a30f",
+      "requestId": "request0013c3244e17417a8d51400999a49f6d",
+      "sequence": 3,
+      "conversationId": "conv_text",
+      "messageId": "msg_clarify",
+      "type": "request.completed"
+    }
+  ],
+  "textEvents": [
+    {
+      "protocolVersion": 2,
+      "eventId": "evente9581f7643554e72b06e004644c86524",
+      "requestId": "requestbd07dbc87f2a423088f59b1549e7495a",
+      "sequence": 0,
+      "conversationId": "conv_text",
+      "messageId": "msg_text",
+      "type": "request.started"
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "evented76490e54d14db7bb3b063f754ff173",
+      "requestId": "requestbd07dbc87f2a423088f59b1549e7495a",
+      "sequence": 1,
+      "conversationId": "conv_text",
+      "messageId": "msg_text",
+      "responseId": "response7a035bcdf20e49a896c1e13410154f42",
+      "revision": 1,
+      "generation": 0,
+      "type": "plan.accepted",
+      "bindingIds": []
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event3fb317ed01614b35be1b356c1a3d5651",
+      "requestId": "requestbd07dbc87f2a423088f59b1549e7495a",
+      "sequence": 2,
+      "conversationId": "conv_text",
+      "messageId": "msg_text",
+      "type": "response.committed",
+      "response": {
+        "protocolVersion": 2,
+        "messageId": "msg_text",
+        "responseId": "response7a035bcdf20e49a896c1e13410154f42",
+        "revision": 1,
+        "generation": 0,
+        "plan": {
+          "schemaVersion": 2,
+          "capabilitySnapshotId": "catalog-33-af300f45",
+          "bindings": [],
+          "facts": [],
+          "blocks": [
+            {
+              "id": "t1",
+              "kind": "text",
+              "parts": [
+                {
+                  "text": "Executive summary requested without running a data tool."
+                }
+              ]
+            }
+          ]
+        },
+        "bindingDescriptors": [],
+        "datasets": {},
+        "facts": {},
+        "operations": [],
+        "status": "complete",
+        "diagnostics": []
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "eventId": "event9adbc1842816446099dd92778a460de9",
+      "requestId": "requestbd07dbc87f2a423088f59b1549e7495a",
+      "sequence": 3,
+      "conversationId": "conv_text",
+      "messageId": "msg_text",
+      "type": "request.completed"
+    }
+  ],
+  "snapshot": {
+    "conversationId": "conv_text",
+    "messages": [
+      {
+        "id": "userrequest0013c3244e17417a8d51400999a49f6d",
+        "role": "user",
+        "text": "Show revenue"
+      },
+      {
+        "id": "msg_clarify",
+        "role": "assistant",
+        "text": "",
+        "response": {
+          "protocolVersion": 2,
+          "messageId": "msg_clarify",
+          "responseId": "response52e8fe85bc4c413794f0b1c6f3242632",
+          "revision": 1,
+          "generation": 0,
+          "plan": {
+            "schemaVersion": 2,
+            "capabilitySnapshotId": "catalog-33-af300f45",
+            "bindings": [],
+            "facts": [],
+            "blocks": [
+              {
+                "id": "q1",
+                "kind": "clarification",
+                "question": "Which breakdown would you like?",
+                "choices": [
+                  {
+                    "id": "summary",
+                    "label": "Executive summary"
+                  },
+                  {
+                    "id": "daily",
+                    "label": "Daily revenue"
+                  }
+                ]
+              }
+            ]
+          },
+          "bindingDescriptors": [],
+          "datasets": {},
+          "facts": {},
+          "operations": [],
+          "status": "complete",
+          "diagnostics": []
+        }
+      },
+      {
+        "id": "userrequestbd07dbc87f2a423088f59b1549e7495a",
+        "role": "user",
+        "text": "Executive summary"
+      },
+      {
+        "id": "msg_text",
+        "role": "assistant",
+        "text": "",
+        "response": {
+          "protocolVersion": 2,
+          "messageId": "msg_text",
+          "responseId": "response7a035bcdf20e49a896c1e13410154f42",
+          "revision": 1,
+          "generation": 0,
+          "plan": {
+            "schemaVersion": 2,
+            "capabilitySnapshotId": "catalog-33-af300f45",
+            "bindings": [],
+            "facts": [],
+            "blocks": [
+              {
+                "id": "t1",
+                "kind": "text",
+                "parts": [
+                  {
+                    "text": "Executive summary requested without running a data tool."
+                  }
+                ]
+              }
+            ]
+          },
+          "bindingDescriptors": [],
+          "datasets": {},
+          "facts": {},
+          "operations": [],
+          "status": "complete",
+          "diagnostics": []
+        }
+      }
+    ]
+  }
+}

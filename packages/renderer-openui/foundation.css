@@ -372,6 +372,38 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
+.foundation-chat :focus-visible,
+.foundation-response :focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+.foundation-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.foundation-brand {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #35507a;
+  background: #edf1ff;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+.foundation-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 1100px;
+  margin: 0 auto 1rem;
+}
+.foundation-link-btn {
+  border: none;
+  background: transparent;
+  color: #1d4ed8;
+  text-decoration: underline;
+  padding: 0;
+}
 .foundation-chat textarea {
   flex: 1;
   min-width: 0;
